@@ -28,9 +28,9 @@ export default function Home() {
 
   const trust = [
     { number: "AMFI", label: "Registered Distributor", sub: "ARN: 355717" },
-    { number: "₹1,000", label: "Start Investing From", sub: "Per month via SIP" },
-    { number: "10+", label: "Fund Houses", sub: "SBI, HDFC, ICICI, PPFAS & more" },
-    { number: "100%", label: "Transparent", sub: "No hidden charges" },
+{ number: "1-on-1", label: "Personal Attention", sub: "You always reach me directly" },
+{ number: "10+", label: "AMC Empanelled", sub: "SBI, HDFC, ICICI & more" },
+{ number: "₹0", label: "Hidden Charges", sub: "100% transparent always" },
   ];
 
   return (
@@ -485,8 +485,8 @@ export default function Home() {
             <h1>Veera Karthik<br /><span>Subburaj</span></h1>
             <div className="arn-badge">ARN: 355717 · Registered with AMFI</div>
             <p className="hero-desc">
-              Helping individuals and families build long-term wealth through disciplined mutual fund investments. Start your journey with as little as ₹1,000 per month.
-            </p>
+  I started this journey because every Indian deserves a trusted advisor who actually cares — not just a commission agent. I work with a small group of investors personally, which means you always get my full attention. Start with as little as ₹1,000 per month.
+</p>
             <div className="hero-btns">
               <button className="btn-primary" onClick={() => setShowForm(true)}>Start Investing Today</button>
               <a href="#services" className="btn-outline">View Services</a>
@@ -543,27 +543,29 @@ export default function Home() {
               <div className="section-tag">About Me</div>
               <h2>Your Trusted <em>Wealth</em> Partner</h2>
               <p className="about-text">
-                I am Veera Karthik Subburaj, an AMFI-registered Mutual Fund Distributor based in Tamil Nadu. My mission is simple — to make investing accessible, understandable, and rewarding for every individual regardless of their financial background.
-              </p>
-              <p className="about-text">
-                I believe that building wealth is not just for the wealthy. With the right guidance, disciplined SIPs, and a long-term mindset, anyone can achieve their financial goals.
-              </p>
+  I'm Veera Karthik Subburaj — a young AMFI-registered Mutual Fund Distributor from Tamil Nadu. Most people delay investing because they don't know where to start. I was one of them. That's why I became an advisor — to be the person I wish I had when I started.
+</p>
+<p className="about-text">
+  Whether you have ₹500 or ₹50,000 to invest monthly, I'll help you build a plan that actually works for your life. When you invest with me, you're not a number — you're a priority.
+</p>
               <ul className="about-list">
                 <li>AMFI Registered Mutual Fund Distributor (ARN: 355717)</li>
-                <li>Personalized investment planning for every client</li>
-                <li>Transparent fee structure with no hidden charges</li>
-                <li>Regular portfolio reviews and performance updates</li>
-                <li>Dedicated support via WhatsApp and email</li>
+<li>Empanelled with 10+ AMCs including SBI, HDFC, ICICI & more</li>
+<li>Personal 1-on-1 attention — you always reach me directly, not an assistant</li>
+<li>Modern investor portal — track your portfolio anytime, anywhere</li>
+<li>Zero hidden charges — complete transparency always</li>
+<li>Currently working closely with a small, growing group of investors across Tamil Nadu 🌱</li>
               </ul>
             </div>
             <div>
               <div className="about-highlight">
-                <h3>Get in Touch</h3>
-                <p>Ready to start your investment journey? I'm just a message away. Reach out via WhatsApp or email and I'll get back to you within 24 hours.</p>
-                <div className="about-contact">
-                  <a href="tel:8148582571">📞 8148582571</a>
-                  <a href="mailto:veerawealthadvisor@gmail.com">✉️ veerawealthadvisor@gmail.com</a>
-                </div>
+  <h3>Why I Started</h3>
+  <p>"Most people delay investing because they don't know where to start. I was one of them. That's why I became an advisor — to be the person I wish I had. I personally review every portfolio and I'm always just a WhatsApp message away."</p>
+  <p style={{marginTop: "0.75rem", color: "rgba(255,255,255,0.4)", fontSize: "0.82rem"}}>— Veera Karthik Subburaj</p>
+  <div className="about-contact">
+    <a href="tel:8148582571">📞 8148582571</a>
+    <a href="mailto:veerawealthadvisor@gmail.com">✉️ veerawealthadvisor@gmail.com</a>
+  </div>
                 <button className="btn-primary" style={{marginTop: "1.5rem", width: "100%"}} onClick={whatsapp}>
                   Chat on WhatsApp →
                 </button>
