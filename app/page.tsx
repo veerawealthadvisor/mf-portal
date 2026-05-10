@@ -1,9 +1,11 @@
 "use client";
+import OnboardingForm from "./components/OnboardingForm";
 import { useState, useEffect } from "react";
 
 export default function Home() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -27,7 +29,7 @@ export default function Home() {
   const trust = [
     { number: "AMFI", label: "Registered Distributor", sub: "ARN: 355717" },
     { number: "₹1,000", label: "Start Investing From", sub: "Per month via SIP" },
-    { number: "6+", label: "Fund Houses", sub: "PPFAS, ICICI, Bandhan & more" },
+    { number: "10+", label: "Fund Houses", sub: "SBI, HDFC, ICICI, PPFAS & more" },
     { number: "100%", label: "Transparent", sub: "No hidden charges" },
   ];
 
@@ -98,6 +100,17 @@ export default function Home() {
         .nav-cta:hover { background: var(--gold2) !important; color: var(--navy) !important; }
         .hamburger { display: none; flex-direction: column; gap: 5px; cursor: pointer; }
         .hamburger span { width: 24px; height: 1.5px; background: var(--gold2); display: block; transition: all 0.3s; }
+        .nav-links.mobile-open {
+  display: flex !important;
+  flex-direction: column;
+  position: fixed;
+  top: 64px; left: 0; right: 0;
+  background: rgba(10,22,40,0.98);
+  padding: 1.5rem 2rem 2rem;
+  gap: 1.25rem;
+  z-index: 99;
+  border-top: 1px solid rgba(201,168,76,0.2);
+}
 
         /* HERO */
         .hero {
@@ -450,13 +463,13 @@ export default function Home() {
       {/* NAV */}
       <nav className={scrolled ? "scrolled" : ""}>
         <a href="#" className="nav-logo">Veera Karthik</a>
-        <ul className="nav-links">
-  <li><a href="#about">About</a></li>
-  <li><a href="#services">Services</a></li>
-  <li><a href="#why">Why Me</a></li>
-  <li><a href="#contact">Contact</a></li>
-  <li><a href="/calculators">Calculators</a></li>
-  <li><a href="/login" className="nav-cta">Investor Login</a></li>
+        <ul className={`nav-links ${menuOpen ? "mobile-open" : ""}`}>
+  <li><a href="#about" onClick={() => setMenuOpen(false)}>About</a></li>
+  <li><a href="#services" onClick={() => setMenuOpen(false)}>Services</a></li>
+  <li><a href="#why" onClick={() => setMenuOpen(false)}>Why Me</a></li>
+  <li><a href="#contact" onClick={() => setMenuOpen(false)}>Contact</a></li>
+  <li><a href="/calculators" onClick={() => setMenuOpen(false)}>Calculators</a></li>
+  <li><a href="/login" className="nav-cta" onClick={() => setMenuOpen(false)}>Investor Login</a></li>
 </ul>
         <div className="hamburger" onClick={() => setMenuOpen(!menuOpen)}>
           <span /><span /><span />
@@ -475,7 +488,7 @@ export default function Home() {
               Helping individuals and families build long-term wealth through disciplined mutual fund investments. Start your journey with as little as ₹1,000 per month.
             </p>
             <div className="hero-btns">
-              <button className="btn-primary" onClick={whatsapp}>Start Investing Today</button>
+              <button className="btn-primary" onClick={() => setShowForm(true)}>Start Investing Today</button>
               <a href="#services" className="btn-outline">View Services</a>
             </div>
           </div>
@@ -672,6 +685,7 @@ export default function Home() {
         </p>
         <a href="/login" className="investor-login">Investor Login →</a>
       </footer>
+      {showForm && <OnboardingForm onClose={() => setShowForm(false)} />}
     </>
   );
 }
