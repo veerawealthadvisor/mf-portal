@@ -22,6 +22,7 @@ interface FormData {
   nominee: boolean;
   nominee_name: string;
   nominee_relation: string;
+  nominee_dob: string;
   nominee_aadhar: string;
   nominee_mobile: string;
   nominee_email: string;
@@ -31,7 +32,7 @@ const INITIAL: FormData = {
   name: "", pan: "", dob: "", mobile: "", email: "",
   bank_account: "", ifsc: "", account_type: "savings",
   nominee: false, nominee_name: "", nominee_relation: "",
-  nominee_aadhar: "", nominee_mobile: "", nominee_email: "",
+  nominee_dob: "", nominee_aadhar: "", nominee_mobile: "", nominee_email: "",
 };
 
 export default function OnboardingForm({ onClose }: { onClose: () => void }) {
@@ -62,6 +63,7 @@ export default function OnboardingForm({ onClose }: { onClose: () => void }) {
     if (step === 3 && form.nominee) {
       if (!form.nominee_name.trim()) e.nominee_name = "Nominee name is required";
       if (!form.nominee_relation.trim()) e.nominee_relation = "Relation is required";
+      if (!form.nominee_dob) e.nominee_dob = "Date of birth is required";
       if (!form.nominee_aadhar.trim() || !/^\d{4}$/.test(form.nominee_aadhar)) e.nominee_aadhar = "Enter last 4 digits of Aadhaar";
       if (!form.nominee_mobile.trim() || !/^[6-9]\d{9}$/.test(form.nominee_mobile)) e.nominee_mobile = "Enter valid mobile number";
     }
@@ -90,6 +92,7 @@ export default function OnboardingForm({ onClose }: { onClose: () => void }) {
         nominee: form.nominee,
         nominee_name: form.nominee ? form.nominee_name : null,
         nominee_relation: form.nominee ? form.nominee_relation : null,
+        nominee_dob: form.nominee ? form.nominee_dob : null,
         nominee_aadhar: form.nominee ? form.nominee_aadhar : null,
         nominee_mobile: form.nominee ? form.nominee_mobile : null,
         nominee_email: form.nominee ? form.nominee_email : null,
@@ -111,6 +114,7 @@ export default function OnboardingForm({ onClose }: { onClose: () => void }) {
           nominee: form.nominee ? "Yes" : "No",
           nominee_name: form.nominee_name || "N/A",
           nominee_relation: form.nominee_relation || "N/A",
+          nominee_dob: form.nominee_dob || "N/A",
           nominee_aadhar: form.nominee_aadhar || "N/A",
           nominee_mobile: form.nominee_mobile || "N/A",
           nominee_email: form.nominee_email || "N/A",
@@ -327,7 +331,7 @@ export default function OnboardingForm({ onClose }: { onClose: () => void }) {
         }
       `}</style>
 
-      <div className="ob-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="ob-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
         <div className="ob-modal">
 
           {/* Header */}
@@ -504,6 +508,12 @@ export default function OnboardingForm({ onClose }: { onClose: () => void }) {
                         </select>
                         {errors.nominee_relation && <div className="ob-error">{errors.nominee_relation}</div>}
                       </div>
+                      <div className="ob-field">
+    <label className="ob-label">Date of Birth <span>*</span></label>
+    <input type="date" className={`ob-input ${errors.nominee_dob ? "error" : ""}`}
+      value={form.nominee_dob} onChange={e => set("nominee_dob", e.target.value)} />
+    {errors.nominee_dob && <div className="ob-error">{errors.nominee_dob}</div>}
+  </div>
                       <div className="ob-field">
                         <label className="ob-label">Aadhaar Last 4 Digits <span>*</span></label>
                         <input className={`ob-input ${errors.nominee_aadhar ? "error" : ""}`} placeholder="XXXX"

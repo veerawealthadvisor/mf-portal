@@ -316,6 +316,51 @@ export default function Home() {
         }
         .about-contact a:hover { color: var(--gold2); }
 
+        /* HOW IT WORKS */
+.howitworks {
+  padding: 7rem 2rem;
+  background: var(--navy);
+}
+.hiw-header { text-align: center; margin-bottom: 4rem; }
+.hiw-header h2 { color: var(--white); }
+.hiw-header h2 em { color: var(--gold2); font-style: italic; }
+.hiw-sub { color: rgba(255,255,255,0.45); font-size: 0.95rem; margin-top: 0.75rem; font-weight: 300; }
+.hiw-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem; margin-bottom: 3rem;
+  position: relative;
+}
+.hiw-card {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(201,168,76,0.2);
+  border-radius: 8px; padding: 2rem;
+  position: relative; transition: all 0.25s;
+}
+.hiw-card:hover { background: rgba(201,168,76,0.06); border-color: var(--gold); transform: translateY(-4px); }
+.hiw-num {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 3.5rem; font-weight: 700;
+  color: rgba(201,168,76,0.15); line-height: 1;
+  margin-bottom: 0.5rem;
+}
+.hiw-icon { font-size: 2rem; margin-bottom: 1rem; }
+.hiw-card h3 {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.3rem; color: var(--white);
+  margin-bottom: 0.75rem;
+}
+.hiw-card p { font-size: 0.85rem; color: rgba(255,255,255,0.5); line-height: 1.8; font-weight: 300; }
+.hiw-arrow {
+  position: absolute; right: -1rem; top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.5rem; color: var(--gold);
+  z-index: 1;
+}
+.hiw-cta { text-align: center; }
+@media (max-width: 768px) {
+  .hiw-grid { grid-template-columns: 1fr; }
+  .hiw-arrow { display: none; }
+}
         /* SERVICES */
         .services {
           padding: 7rem 2rem;
@@ -575,6 +620,44 @@ export default function Home() {
         </div>
       </section>
 
+{/* HOW IT WORKS */}
+<section className="howitworks">
+  <div className="section-wrap">
+    <div className="hiw-header">
+      <div className="section-tag" style={{justifyContent:"center"}}>Simple Process</div>
+      <h2>How It <em>Works</em></h2>
+      <p className="hiw-sub">Start your investment journey in 3 simple steps</p>
+    </div>
+    <div className="hiw-grid">
+      <div className="hiw-card">
+        <div className="hiw-num">01</div>
+        <div className="hiw-icon">💬</div>
+        <h3>Connect With Me</h3>
+        <p>Fill the Start Investing form or WhatsApp me directly. I'll understand your financial goals, income, and risk appetite in a simple conversation.</p>
+        <div className="hiw-arrow">→</div>
+      </div>
+      <div className="hiw-card">
+        <div className="hiw-num">02</div>
+        <div className="hiw-icon">📋</div>
+        <h3>Get Your Plan</h3>
+        <p>I'll recommend the right mutual funds based on your goals and timeline. No jargon, no confusion — just a clear, simple investment plan.</p>
+        <div className="hiw-arrow">→</div>
+      </div>
+      <div className="hiw-card">
+        <div className="hiw-num">03</div>
+        <div className="hiw-icon">📈</div>
+        <h3>Track & Grow</h3>
+        <p>Get access to your personal investor dashboard. Track your portfolio live, see your returns, and watch your wealth grow month by month.</p>
+        <div className="hiw-arrow" style={{opacity:0}}>→</div>
+      </div>
+    </div>
+    <div className="hiw-cta">
+      <button className="btn-primary" onClick={() => setShowForm(true)}>
+        Start Your Journey Today →
+      </button>
+    </div>
+  </div>
+</section>
       {/* SERVICES */}
       <section className="services" id="services">
         <div className="section-wrap">

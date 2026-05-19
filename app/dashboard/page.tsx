@@ -114,6 +114,10 @@ export default function Dashboard() {
         .single();
 
       if (inv) {
+          if (inv.is_admin) {
+    router.push("/admin/dashboard");
+    return;
+  }
         setInvestor(inv);
         const { data: txns } = await supabase
           .from("transactions")
@@ -316,6 +320,9 @@ export default function Dashboard() {
         <div className="welcome">
           <h2>Welcome, {investor?.name?.split(" ")[0] || "Investor"} 👋</h2>
           <p>Live portfolio · CAN: {investor?.can} · NAVs updated daily from AMFI</p>
+<p style={{fontSize:"0.75rem", color:"#c9a84c", marginTop:"0.4rem", background:"rgba(201,168,76,0.08)", padding:"0.4rem 0.85rem", borderRadius:"4px", display:"inline-block"}}>
+  📋 Unit purchases and redemptions are updated in the first week of every month
+</p>
         </div>
 
         {navLoading && <div className="nav-loading">⏳ Fetching live NAVs from AMFI...</div>}
