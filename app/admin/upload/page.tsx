@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { supabase } from "../../../lib/supabase";
+import * as XLSX from "xlsx";
 
 export default function AdminUpload() {
   const [file, setFile] = useState<File | null>(null);
@@ -9,55 +10,146 @@ export default function AdminUpload() {
   const [error, setError] = useState("");
   const [password, setPassword] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
+  const [progress, setProgress] = useState("");
 
   const ADMIN_PASSWORD = "veerakarthik2024";
 
   const handleAuth = () => {
-    if (password === ADMIN_PASSWORD) {
-      setAuthenticated(true);
-    } else {
-      setError("Incorrect admin password");
-    }
+    if (password === ADMIN_PASSWORD) setAuthenticated(true);
+    else setError("Incorrect admin password");
   };
 
-  const parseAmount = (val: string) => {
-    if (!val) return 0;
-    return parseFloat(String(val).replace(/[^0-9.]/g, "")) || 0;
-  };
-
-  const parseDate = (val: string) => {
+  const parseDate = (val: any): string | null => {
     if (!val) return null;
-    const s = String(val).trim();
-    const parts = s.split("-");
-    if (parts.length === 3 && parts[2].length === 4) {
-      return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+    // If it's a JS Date object from XLSX
+    if (val instanceof Date) {
+      return val.toISOString().split("T")[0];
     }
-    return s;
+    const s = String(val).trim();
+    // MM/DD/YYYY
+    const mmddyyyy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (mmddyyyy) return `${mmddyyyy[3]}-${mmddyyyy[1].padStart(2, "0")}-${mmddyyyy[2].padStart(2, "0")}`;
+    // DD-MM-YYYY
+    const ddmmyyyy = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+    if (ddmmyyyy) return `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2, "0")}-${ddmmyyyy[1].padStart(2, "0")}`;
+    // DD-Mon-YYYY
+    const ddmonyyyy = s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+    if (ddmonyyyy) {
+      const months: any = { Jan:"01",Feb:"02",Mar:"03",Apr:"04",May:"05",Jun:"06",Jul:"07",Aug:"08",Sep:"09",Oct:"10",Nov:"11",Dec:"12" };
+      return `${ddmonyyyy[3]}-${months[ddmonyyyy[2]] || "01"}-${ddmonyyyy[1].padStart(2, "0")}`;
+    }
+    // YYYY-MM-DD already
+    if (s.match(/^\d{4}-\d{2}-\d{2}/)) return s.slice(0, 10);
+    return null;
   };
 
-  const getMonthYear = (dateStr: string) => {
+  const getMonthYear = (dateStr: string | null) => {
     if (!dateStr) return "";
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return "";
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   };
 
-  const parseCSVLine = (line: string): string[] => {
-    const result: string[] = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      if (line[i] === '"') {
-        inQuotes = !inQuotes;
-      } else if (line[i] === "," && !inQuotes) {
-        result.push(current.trim());
-        current = "";
-      } else {
-        current += line[i];
+  const processSheet1 = async (rows: any[]) => {
+    let inserted = 0, duplicates = 0, skipped = 0, rejected = 0;
+    const investorsNotFound: string[] = [];
+
+    for (const row of rows) {
+      const utrn = String(row["UTRN"] || "").trim();
+      const can = String(row["CAN"] || "").trim();
+      const name = String(row["Primary Holder Name"] || "").trim();
+      const fund = String(row["Fund Name"] || "").trim();
+      const scheme = String(row["RTA Scheme Name"] || "").trim();
+      const folio = String(row["Folio Number"] || "").trim();
+      const txnType = String(row["Transaction Type"] || "").trim().toLowerCase();
+      const status = String(row["Transaction Status"] || "").trim().toLowerCase();
+      const responseAmount = parseFloat(row["Response Amount"]) || 0;
+      const responseUnits = parseFloat(row["Response Units"]) || 0;
+      const nav = parseFloat(row["Price"]) || 0;
+      const valueDate = parseDate(row["Value Date"]);
+
+      if (!can || !utrn || !name) continue;
+      if (!status.includes("rta processed")) { rejected++; continue; }
+      if (responseUnits === 0) { skipped++; continue; }
+      // Skip SIP rows in sheet 1 — they are in sheet 2
+      if (txnType.includes("sip") && !txnType.includes("cancel")) { skipped++; continue; }
+
+      const isRedemption = txnType.includes("redeem");
+      const finalUnits = isRedemption ? -Math.abs(responseUnits) : responseUnits;
+      const finalAmount = isRedemption ? -Math.abs(responseAmount) : responseAmount;
+      const monthYear = getMonthYear(valueDate);
+
+      const { data: existingInv } = await supabase.from("investors").select("can").eq("can", can).single();
+      if (!existingInv) {
+        if (!investorsNotFound.find(i => i.includes(can))) investorsNotFound.push(`${name} (CAN: ${can})`);
+        skipped++; continue;
       }
+
+      const { data: existing } = await supabase.from("transactions").select("id").eq("itrn", utrn).maybeSingle();
+      if (existing) { duplicates++; continue; }
+
+      const { error: insertError } = await supabase.from("transactions").insert({
+        itrn: utrn, can, fund_name: fund, scheme_name: scheme,
+        folio_no: folio, amount: finalAmount, units: finalUnits,
+        nav, nav_date: valueDate, transaction_date: valueDate,
+        month_year: monthYear, txn_type: isRedemption ? "redemption" : "purchase",
+        instalment_no: null,
+      });
+
+      if (insertError) { console.error("S1 insert error:", insertError.message); skipped++; }
+      else inserted++;
     }
-    result.push(current.trim());
-    return result;
+
+    return { inserted, duplicates, skipped, rejected, investorsNotFound };
+  };
+
+  const processSheet2 = async (rows: any[]) => {
+    let inserted = 0, duplicates = 0, skipped = 0, rejected = 0;
+    const investorsNotFound: string[] = [];
+
+    for (const row of rows) {
+      const utrn = String(row["UTRN"] || "").trim();
+      const can = String(row["CAN"] || "").trim();
+      const name = String(row["Primary Holder Name"] || "").trim();
+      const fund = String(row["Fund Name"] || "").trim();
+      const scheme = String(row["RTA Scheme Name"] || "").trim();
+      const folio = String(row["Folio Number"] || "").trim();
+      const status = String(row["Transaction Status"] || "").trim().toLowerCase();
+      const responseAmount = parseFloat(row["Response Amount"]) || 0;
+      const responseUnits = parseFloat(row["Response Units"]) || 0;
+      const nav = parseFloat(row["Price"]) || 0;
+      const valueDate = parseDate(row["Value Date"]);
+      const instalmentNo = parseInt(row["Instalment \nNo"] || row["Instalment No"] || "0") || null;
+      const amount = parseFloat(row["Amount"]) || 0;
+
+      if (!can || !utrn || !name) continue;
+      if (!status.includes("rta processed")) { rejected++; continue; }
+      if (responseUnits === 0) { skipped++; continue; }
+
+      const monthYear = getMonthYear(valueDate);
+
+      const { data: existingInv } = await supabase.from("investors").select("can").eq("can", can).single();
+      if (!existingInv) {
+        if (!investorsNotFound.find(i => i.includes(can))) investorsNotFound.push(`${name} (CAN: ${can})`);
+        skipped++; continue;
+      }
+
+      const { data: existing } = await supabase.from("transactions").select("id").eq("itrn", utrn).maybeSingle();
+      if (existing) { duplicates++; continue; }
+
+      const { error: insertError } = await supabase.from("transactions").insert({
+        itrn: utrn, can, fund_name: fund, scheme_name: scheme,
+        folio_no: folio, amount: responseAmount || amount,
+        units: responseUnits, nav, nav_date: valueDate,
+        transaction_date: valueDate, month_year: monthYear,
+        txn_type: "sip", instalment_no: instalmentNo,
+      });
+
+      if (insertError) { console.error("S2 insert error:", insertError.message); skipped++; }
+      else inserted++;
+    }
+
+    return { inserted, duplicates, skipped, rejected, investorsNotFound };
   };
 
   const handleUpload = async () => {
@@ -65,129 +157,59 @@ export default function AdminUpload() {
     setUploading(true);
     setError("");
     setResults(null);
+    setProgress("");
 
     try {
-      const text = await file.text();
-      const lines = text.split("\n").filter((l) => l.trim());
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
 
-      // Find header row
-      let headerIndex = -1;
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes("ITRN") && lines[i].includes("CAN") && lines[i].includes("Investor Name")) {
-          headerIndex = i;
-          break;
+      const sheetNames = workbook.SheetNames;
+      console.log("Sheets found:", sheetNames);
+
+      let s1Result = { inserted: 0, duplicates: 0, skipped: 0, rejected: 0, investorsNotFound: [] as string[] };
+      let s2Result = { inserted: 0, duplicates: 0, skipped: 0, rejected: 0, investorsNotFound: [] as string[] };
+
+      // Process Sheet 1 — Transaction Report
+      const txnSheet = workbook.Sheets[sheetNames[0]];
+      if (txnSheet) {
+        setProgress("Processing Sheet 1 — Transactions...");
+        // Skip first 2 rows (title + report period), use row 3 as header
+        const rows = XLSX.utils.sheet_to_json(txnSheet, { range: 2, defval: "" });
+        s1Result = await processSheet1(rows);
+      }
+
+      // Process Sheet 2 — Systematic Instalment Report
+      if (sheetNames.length > 1) {
+        const sipSheet = workbook.Sheets[sheetNames[1]];
+        if (sipSheet) {
+          setProgress("Processing Sheet 2 — SIP Instalments...");
+          const rows = XLSX.utils.sheet_to_json(sipSheet, { range: 2, defval: "" });
+          s2Result = await processSheet2(rows);
         }
       }
 
-      if (headerIndex === -1) {
-        setError("Could not find header row. Please upload the GotxReportDST CSV file.");
-        setUploading(false);
-        return;
-      }
+      // Merge results
+      const allInvestorsNotFound = [...new Set([...s1Result.investorsNotFound, ...s2Result.investorsNotFound])];
 
-      const dataLines = lines.slice(headerIndex + 1);
+      setResults({
+        sheet1: s1Result,
+        sheet2: s2Result,
+        total: {
+          inserted: s1Result.inserted + s2Result.inserted,
+          duplicates: s1Result.duplicates + s2Result.duplicates,
+          rejected: s1Result.rejected + s2Result.rejected,
+          skipped: s1Result.skipped + s2Result.skipped,
+        },
+        investorsNotFound: allInvestorsNotFound,
+        sheetsFound: sheetNames.length,
+      });
 
-      // EXACT column positions from GotxReportDST file
-      const ITRN_COL = 8;
-      const CAN_COL = 9;
-      const NAME_COL = 10;
-      const FUND_COL = 11;
-      const SCHEME_COL = 13;
-      const FOLIO_COL = 15;
-      const DATE_COL = 20;
-      const TARGET_UNITS_COL = 25;
-      const TARGET_AMOUNT_COL = 26;
-      const TARGET_NAV_COL = 27;
-      const TARGET_NAV_DATE_COL = 28;
-
-      let inserted = 0;
-      let duplicates = 0;
-      let skipped = 0;
-      const investorsNotFound: string[] = [];
-
-      for (const line of dataLines) {
-        if (!line.trim()) continue;
-        const cols = parseCSVLine(line);
-
-        const itrn = cols[ITRN_COL]?.trim();
-        const can = cols[CAN_COL]?.trim();
-        const name = cols[NAME_COL]?.trim();
-        const fund = cols[FUND_COL]?.trim();
-        const scheme = cols[SCHEME_COL]?.trim();
-        const folio = cols[FOLIO_COL]?.replace(/\(.*?\)/g, "").trim();
-        const rawDate = cols[DATE_COL]?.trim();
-        const units = parseFloat(cols[TARGET_UNITS_COL]) || 0;
-        const amount = parseAmount(cols[TARGET_AMOUNT_COL]);
-        const nav = parseFloat(cols[TARGET_NAV_COL]) || 0;
-        const rawNavDate = cols[TARGET_NAV_DATE_COL]?.trim();
-
-        // Skip empty, footer, or invalid rows
-        if (!can || !itrn || !name) continue;
-        if (can === "CAN" || itrn === "ITRN") continue;
-        if (!itrn.match(/^[A-Z0-9]+$/)) continue; // Skip non-ITRN rows like footer
-        if (amount === 0 && units === 0) { skipped++; continue; }
-
-        const txnDate = parseDate(rawDate);
-        const navDate = parseDate(rawNavDate);
-        const monthYear = getMonthYear(txnDate || "");
-
-        // Check investor exists
-        const { data: existingInv } = await supabase
-          .from("investors")
-          .select("can")
-          .eq("can", can)
-          .single();
-
-        if (!existingInv) {
-          if (!investorsNotFound.find(i => i.includes(can))) {
-            investorsNotFound.push(`${name} (CAN: ${can})`);
-          }
-          skipped++;
-          continue;
-        }
-
-        // Use ITRN for duplicate check
-        const { data: existing } = await supabase
-          .from("transactions")
-          .select("id")
-          .eq("itrn", itrn)
-          .maybeSingle();
-
-        if (existing) {
-          duplicates++;
-          continue;
-        }
-
-        // Insert
-        const { error: insertError } = await supabase
-          .from("transactions")
-          .insert({
-            itrn,
-            can,
-            fund_name: fund,
-            scheme_name: scheme,
-            folio_no: folio,
-            amount,
-            units,
-            nav,
-            nav_date: navDate,
-            transaction_date: txnDate,
-            month_year: monthYear,
-          });
-
-        if (insertError) {
-          console.error("Insert error:", insertError.message);
-          skipped++;
-        } else {
-          inserted++;
-        }
-      }
-
-      setResults({ inserted, duplicates, skipped, investorsNotFound });
     } catch (err: any) {
       setError("Something went wrong: " + err.message);
+      console.error(err);
     }
 
+    setProgress("");
     setUploading(false);
   };
 
@@ -251,12 +273,18 @@ export default function AdminUpload() {
         .upload-btn:hover:not(:disabled) { background: #1a2744; }
         .upload-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .format-note { background: rgba(201,168,76,0.08); border: 1px solid rgba(201,168,76,0.2); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.8rem; color: #92400e; margin-bottom: 1.25rem; line-height: 1.7; }
+        .progress { background: rgba(201,168,76,0.1); border: 1px solid rgba(201,168,76,0.2); border-radius: 6px; padding: 0.75rem 1rem; font-size: 0.82rem; color: #92400e; margin-top: 1rem; text-align: center; }
         .result-card { border-radius: 8px; padding: 1.5rem; margin-top: 1.5rem; background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.2); }
         .result-title { font-size: 1rem; font-weight: 500; color: #15803d; margin-bottom: 1rem; }
-        .result-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1rem; }
-        .result-stat { text-align: center; background: white; border-radius: 6px; padding: 1rem; }
-        .result-num { font-family: 'Cormorant Garamond', serif; font-size: 2rem; font-weight: 700; color: var(--navy); }
-        .result-label { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+        .result-total { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; margin-bottom: 1.25rem; }
+        .result-stat { text-align: center; background: white; border-radius: 6px; padding: 0.85rem; }
+        .result-num { font-family: 'Cormorant Garamond', serif; font-size: 1.8rem; font-weight: 700; color: var(--navy); }
+        .result-label { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+        .sheet-breakdown { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+        .sheet-card { background: white; border-radius: 6px; padding: 0.85rem 1rem; border: 1px solid var(--border); }
+        .sheet-title { font-size: 0.75rem; font-weight: 500; color: var(--navy); margin-bottom: 0.5rem; }
+        .sheet-stat { font-size: 0.72rem; color: var(--muted); display: flex; justify-content: space-between; padding: 2px 0; }
+        .sheet-stat span:last-child { font-weight: 500; color: var(--navy); }
         .warn-investors { margin-top: 1rem; }
         .warn-investors h4 { font-size: 0.8rem; font-weight: 500; color: #92400e; margin-bottom: 0.5rem; }
         .warn-item { font-size: 0.82rem; color: #92400e; background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.3); padding: 0.5rem 0.75rem; border-radius: 4px; margin-bottom: 0.4rem; }
@@ -273,72 +301,82 @@ export default function AdminUpload() {
 
       <div className="main">
         <h1>Upload Monthly Data</h1>
-        <p className="subtitle">Upload your GotxReportDST CSV file to update all investor dashboards instantly.</p>
+        <p className="subtitle">Upload your XLSX report directly — both sheets processed automatically.</p>
 
         <div className="card">
-          <h2>📁 Select File</h2>
+          <h2>📁 Select XLSX File</h2>
           <div className="format-note">
-            ✅ Compatible with <strong>BSE StarMF GotxReportDST</strong> export<br />
-            ✅ Uses <strong>ITRN</strong> for 100% accurate duplicate detection<br />
-            ✅ Re-uploading same file is completely safe — no duplicates created<br />
-            ⚠️ Save your XLS as <strong>CSV</strong> from Excel before uploading
+            ✅ Upload the <strong>XLSX file directly</strong> — no need to convert to CSV!<br />
+            ✅ <strong>Sheet 1</strong> (Transaction Report) — purchases and redemptions<br />
+            ✅ <strong>Sheet 2</strong> (Systematic Instalment Report) — all SIP instalments with instalment numbers<br />
+            ✅ Only <strong>RTA Processed</strong> transactions imported — failed/rejected automatically skipped<br />
+            ✅ UTRN-based duplicate protection — safe to re-upload same file
           </div>
 
-          <div
-            className={`drop-zone ${file ? "has-file" : ""}`}
-            onClick={() => document.getElementById("fileInput")?.click()}
-          >
-            <div className="drop-icon">{file ? "✅" : "📂"}</div>
-            <div className="drop-title">
-              {file ? file.name : "Click to select your GotxReportDST CSV file"}
-            </div>
+          <div className={`drop-zone ${file ? "has-file" : ""}`}
+            onClick={() => document.getElementById("fileInput")?.click()}>
+            <div className="drop-icon">{file ? "✅" : "📊"}</div>
+            <div className="drop-title">{file ? file.name : "Click to select your XLSX report"}</div>
             <div className="drop-sub">
-              {file
-                ? `${(file.size / 1024).toFixed(1)} KB · Ready to upload`
-                : "Save XLS as CSV from Excel first, then upload here"}
+              {file ? `${(file.size / 1024).toFixed(1)} KB · Ready to upload`
+                : "TransactEezz monthly report (.xlsx) — both sheets will be processed"}
             </div>
           </div>
-          <input
-            id="fileInput"
-            type="file"
-            accept=".csv,.txt"
-            className="file-input"
-            onChange={(e) => {
-              setFile(e.target.files?.[0] || null);
-              setResults(null);
-              setError("");
-            }}
-          />
-          <button
-            className="upload-btn"
-            onClick={handleUpload}
-            disabled={!file || uploading}
-          >
-            {uploading ? "⏳ Processing..." : "⬆️ Upload and Update Dashboards"}
+          <input id="fileInput" type="file" accept=".xlsx,.xls" className="file-input"
+            onChange={(e) => { setFile(e.target.files?.[0] || null); setResults(null); setError(""); }} />
+
+          <button className="upload-btn" onClick={handleUpload} disabled={!file || uploading}>
+            {uploading ? "⏳ Processing both sheets..." : "⬆️ Upload and Update Dashboards"}
           </button>
 
+          {progress && <div className="progress">⏳ {progress}</div>}
           {error && <div className="error-box">⚠️ {error}</div>}
 
           {results && (
             <div className="result-card">
-              <div className="result-title">✅ Upload Complete!</div>
-              <div className="result-grid">
+              <div className="result-title">
+                ✅ Upload Complete! — {results.sheetsFound} sheet{results.sheetsFound > 1 ? "s" : ""} processed
+              </div>
+
+              {/* Total summary */}
+              <div className="result-total">
                 <div className="result-stat">
-                  <div className="result-num">{results.inserted}</div>
-                  <div className="result-label">New transactions added</div>
+                  <div className="result-num">{results.total.inserted}</div>
+                  <div className="result-label">Total added</div>
                 </div>
                 <div className="result-stat">
-                  <div className="result-num">{results.duplicates}</div>
+                  <div className="result-num">{results.total.duplicates}</div>
                   <div className="result-label">Already existed</div>
                 </div>
                 <div className="result-stat">
-                  <div className="result-num">{results.skipped}</div>
-                  <div className="result-label">Rows skipped</div>
+                  <div className="result-num">{results.total.rejected}</div>
+                  <div className="result-label">Failed/rejected</div>
+                </div>
+                <div className="result-stat">
+                  <div className="result-num">{results.total.skipped}</div>
+                  <div className="result-label">Skipped</div>
                 </div>
               </div>
+
+              {/* Per sheet breakdown */}
+              <div className="sheet-breakdown">
+                <div className="sheet-card">
+                  <div className="sheet-title">📋 Sheet 1 — Transactions</div>
+                  <div className="sheet-stat"><span>Added</span><span>{results.sheet1.inserted}</span></div>
+                  <div className="sheet-stat"><span>Duplicates</span><span>{results.sheet1.duplicates}</span></div>
+                  <div className="sheet-stat"><span>Rejected/failed</span><span>{results.sheet1.rejected}</span></div>
+                </div>
+                <div className="sheet-card">
+                  <div className="sheet-title">🔄 Sheet 2 — SIP Instalments</div>
+                  <div className="sheet-stat"><span>Added</span><span>{results.sheet2.inserted}</span></div>
+                  <div className="sheet-stat"><span>Duplicates</span><span>{results.sheet2.duplicates}</span></div>
+                  <div className="sheet-stat"><span>Rejected/failed</span><span>{results.sheet2.rejected}</span></div>
+                </div>
+              </div>
+
               {results.investorsNotFound.length > 0 && (
                 <div className="warn-investors">
-                  <h4>⚠️ New investors found — create their login accounts:</h4>
+                  <h4>⚠️ New investors found — create their login accounts in Supabase → Authentication → Users:</h4>
                   {results.investorsNotFound.map((inv: string, i: number) => (
                     <div className="warn-item" key={i}>👤 {inv}</div>
                   ))}
@@ -351,11 +389,11 @@ export default function AdminUpload() {
         <div className="card">
           <h2>📋 Monthly workflow</h2>
           <ol className="instructions" style={{ paddingLeft: "1rem" }}>
-            <li><span className="step-badge">1</span>Login to <strong>BSE StarMF</strong> → Reports → Processed Transaction (GotxReportDST)</li>
-            <li><span className="step-badge">2</span>Select date range → Export as <strong>XLS</strong></li>
-            <li><span className="step-badge">3</span>Open in Excel → File → Save As → <strong>CSV (Comma delimited)</strong></li>
-            <li><span className="step-badge">4</span>Come here → Upload that CSV file</li>
-            <li><span className="step-badge">5</span>All investor dashboards update instantly ✅</li>
+            <li><span className="step-badge">1</span>Login to <strong>TransactEezz / BSE StarMF</strong> → Reports → Transaction Report</li>
+            <li><span className="step-badge">2</span>Select date range → Export as <strong>XLSX</strong></li>
+            <li><span className="step-badge">3</span>Upload the <strong>XLSX file directly here</strong> — no conversion needed!</li>
+            <li><span className="step-badge">4</span>Both sheets processed automatically — all dashboards update instantly ✅</li>
+            <li><span className="step-badge">5</span>If new investors appear, create their login in Supabase → Authentication → Users</li>
           </ol>
         </div>
       </div>
