@@ -247,6 +247,7 @@ setNavLoading(false);
         <div className="nav-right">
           <span className="admin-badge">Admin</span>
           <a href="/admin/upload" className="nav-btn">Upload Data</a>
+          <a href="/admin/goals" className="nav-btn">🎯 Goals</a>
           <button className="nav-btn" onClick={handleLogout}>Logout</button>
         </div>
       </nav>

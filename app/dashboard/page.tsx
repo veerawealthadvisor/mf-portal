@@ -311,6 +311,7 @@ export default function Dashboard() {
         <div className="dash-nav-logo">Veera Karthik · Investor Portal</div>
         <div className="dash-nav-right">
   <span className="investor-name">👤 {investor?.name || "Investor"}</span>
+  <button className="logout-btn" onClick={() => router.push("/goals")}>🎯 Goals</button>
   <button className="logout-btn" onClick={() => router.push("/calculators")}>Calculators</button>
   <button className="logout-btn" onClick={handleLogout}>Logout</button>
 </div>

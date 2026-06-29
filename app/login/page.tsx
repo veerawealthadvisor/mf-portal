@@ -7,13 +7,11 @@ export default function LoginPage() {
   const router = useRouter();
   const [tab, setTab] = useState<"password" | "otp">("otp");
 
-  // Password login state
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // OTP state
   const [otpEmail, setOtpEmail] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState("");
@@ -21,7 +19,6 @@ export default function LoginPage() {
   const [otpLoading, setOtpLoading] = useState(false);
   const [resendTimer, setResendTimer] = useState(0);
 
-  // Password login
   const handlePasswordLogin = async () => {
     setError("");
     setLoading(true);
@@ -34,7 +31,6 @@ export default function LoginPage() {
     router.push("/dashboard");
   };
 
-  // Send OTP
   const handleSendOTP = async () => {
     if (!otpEmail.trim() || !/\S+@\S+\.\S+/.test(otpEmail)) {
       setOtpError("Please enter a valid email address");
@@ -44,7 +40,10 @@ export default function LoginPage() {
     setOtpError("");
     const { error } = await supabase.auth.signInWithOtp({
       email: otpEmail,
-      options: { shouldCreateUser: false },
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo: undefined,
+      },
     });
     if (error) {
       setOtpError("Could not send OTP. Please check your email and try again.");
@@ -53,7 +52,6 @@ export default function LoginPage() {
     }
     setOtpSent(true);
     setOtpLoading(false);
-    // Start 30 second resend timer
     setResendTimer(30);
     const interval = setInterval(() => {
       setResendTimer(t => {
@@ -63,7 +61,6 @@ export default function LoginPage() {
     }, 1000);
   };
 
-  // Verify OTP
   const handleVerifyOTP = async () => {
     if (!otp.trim() || otp.length < 6) {
       setOtpError("Please enter the 6-digit OTP");
@@ -74,7 +71,7 @@ export default function LoginPage() {
     const { error } = await supabase.auth.verifyOtp({
       email: otpEmail,
       token: otp,
-      type: "magiclink",
+      type: "email",  // ✅ FIXED: was "magiclink", now "email"
     });
     if (error) {
       setOtpError("Invalid or expired OTP. Please try again.");
@@ -222,7 +219,6 @@ export default function LoginPage() {
             <p>Investor Portal · ARN 355717</p>
           </div>
 
-          {/* TABS */}
           <div className="tabs">
             <button className={`tab-btn ${tab === "otp" ? "active" : ""}`} onClick={() => { setTab("otp"); setError(""); setOtpError(""); }}>
               📱 Login with OTP
@@ -232,7 +228,6 @@ export default function LoginPage() {
             </button>
           </div>
 
-          {/* PASSWORD TAB */}
           {tab === "password" && (
             <>
               <div className="form-group">
@@ -257,7 +252,6 @@ export default function LoginPage() {
             </>
           )}
 
-          {/* OTP TAB */}
           {tab === "otp" && !otpSent && (
             <>
               <div className="form-group">
@@ -284,7 +278,6 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* OTP input boxes */}
               <div className="otp-boxes">
                 {Array.from({ length: 6 }, (_, i) => (
                   <input
