@@ -71,8 +71,61 @@ export default function AdminUpload() {
       if (!can || !utrn || !name) continue;
       if (!status.includes("rta processed")) { rejected++; continue; }
       if (responseUnits === 0) { skipped++; continue; }
-      // Skip SIP rows in sheet 1 — they are in sheet 2
-      if (txnType.includes("sip") && !txnType.includes("cancel")) { skipped++; continue; }
+     // First SIP instalments land in Sheet 1 — process them as SIP txn_type: "sip" with instalment_no: 1
+// (Subsequent instalments are in Sheet 2)
+const processSheet1 = async (rows: any[]) => {
+  let inserted = 0, duplicates = 0, skipped = 0, rejected = 0;
+  const investorsNotFound: string[] = [];
+
+  for (const row of rows) {
+    const utrn = String(row["UTRN"] || "").trim();
+    const can = String(row["CAN"] || "").trim();
+    const name = String(row["Primary Holder Name"] || "").trim();
+    const fund = String(row["Fund Name"] || "").trim();
+    const scheme = String(row["RTA Scheme Name"] || "").trim();
+    const folio = String(row["Folio Number"] || "").trim();
+    const txnType = String(row["Transaction Type"] || "").trim().toLowerCase();
+    const status = String(row["Transaction Status"] || "").trim().toLowerCase();
+    const responseAmount = parseFloat(row["Response Amount"]) || 0;
+    const responseUnits = parseFloat(row["Response Units"]) || 0;
+    const nav = parseFloat(row["Price"]) || 0;
+    const valueDate = parseDate(row["Value Date"]);
+
+    if (!can || !utrn || !name) continue;
+    if (!status.includes("rta processed")) { rejected++; continue; }
+    if (responseUnits === 0) { skipped++; continue; }
+
+    const isSIP = txnType.includes("sip") && !txnType.includes("cancel");
+    const isRedemption = txnType.includes("redeem");
+
+    const finalUnits = isRedemption ? -Math.abs(responseUnits) : responseUnits;
+    const finalAmount = isRedemption ? -Math.abs(responseAmount) : responseAmount;
+    const monthYear = getMonthYear(valueDate);
+
+    const { data: existingInv } = await supabase.from("investors").select("can").eq("can", can).single();
+    if (!existingInv) {
+      if (!investorsNotFound.find(i => i.includes(can))) investorsNotFound.push(`${name} (CAN: ${can})`);
+      skipped++; continue;
+    }
+
+    const { data: existing } = await supabase.from("transactions").select("id").eq("itrn", utrn).maybeSingle();
+    if (existing) { duplicates++; continue; }
+
+    const { error: insertError } = await supabase.from("transactions").insert({
+      itrn: utrn, can, fund_name: fund, scheme_name: scheme,
+      folio_no: folio, amount: finalAmount, units: finalUnits,
+      nav, nav_date: valueDate, transaction_date: valueDate,
+      month_year: monthYear,
+      txn_type: isSIP ? "sip" : isRedemption ? "redemption" : "purchase",
+      instalment_no: isSIP ? 1 : null,   // ← first instalment
+    });
+
+    if (insertError) { console.error("S1 insert error:", insertError.message); skipped++; }
+    else inserted++;
+  }
+
+  return { inserted, duplicates, skipped, rejected, investorsNotFound };
+};
 
       const isRedemption = txnType.includes("redeem");
       const finalUnits = isRedemption ? -Math.abs(responseUnits) : responseUnits;
