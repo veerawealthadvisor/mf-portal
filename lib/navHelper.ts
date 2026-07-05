@@ -1,5 +1,5 @@
 // Fetches live NAV from mfapi.in for a given scheme name
-// Includes strict matching safeguards to prevent wrong-fund NAV mismatches
+// Includes hardcoded scheme codes for known funds + fuzzy search fallback for new funds
 
 interface MFApiSearchResult {
   schemeCode: number;
@@ -12,9 +12,34 @@ interface NAVResult {
   schemeName: string;
   schemeCode: number;
   matchConfidence: "high" | "medium" | "low";
+  source: "hardcoded" | "search";
 }
 
-// Words that don't help identify a fund — strip these before comparing
+// ── HARDCODED SCHEME CODES ──────────────────────────────────────────────────
+// Exact mfapi.in scheme codes for all currently recommended Regular plan funds.
+// When a new fund appears in uploads that isn't here, the system falls back to
+// fuzzy search and logs a warning so you know to add it here.
+const SCHEME_CODE_OVERRIDES: Record<string, number> = {
+  "axis nifty 100 index fund regular growth":                                          147665,
+  "axis short duration fund - growth":                                                 112354,
+  "axis small cap fund growth":                                                        125350,
+  "axis treasury advantage fund - growth":                                             112214,
+  "bandhan low duration fund-growth-(regular plan)":                                   108632,
+  "bandhan money market fund--growth-(regular plan)":                                  108756,
+  "bandhan small cap fund regular plan-growth":                                        147944,
+  "edelweiss nifty midcap150 momentum 50 index fund- regular plan growth - growth":   150900,
+  "hdfc large and mid cap fund- regular plan-growth":                                  130496,
+  "icici prudential banking and financial services fund - regular plan - growth":      109445,
+  "icici prudential nifty bank index fund - growth":                                   149859,
+  "icici prudential ultra short term fund-regular-growth":                             115092,
+  "kotak small cap fund - growth":                                                     102875,
+  "motilal oswal digital india fund regular growth":                                   152966,
+  "motilal oswal midcap fund - regular plan growth":                                   127039,
+  "nippon india growth mid cap fund - growth plan growth option":                      100377,
+  "parag parikh flexi cap fund-regular-growth":                                        122640,
+};
+
+// Words that don't help identify a fund — strip before comparing
 const STOP_WORDS = new Set([
   "fund", "scheme", "plan", "the", "of", "a", "an", "and", "-", "–",
 ]);
@@ -29,23 +54,43 @@ function normalizeWords(text: string): string[] {
     .filter((w) => w.length > 1 && !STOP_WORDS.has(w));
 }
 
-// Calculate how many "identifying" words from the original scheme name
-// actually appear in the candidate scheme name (Jaccard-style overlap)
 function wordOverlapScore(original: string, candidate: string): number {
   const origWords = new Set(normalizeWords(original));
   const candWords = new Set(normalizeWords(candidate));
   if (origWords.size === 0) return 0;
-
   let matched = 0;
-  origWords.forEach((w) => {
-    if (candWords.has(w)) matched++;
-  });
-
-  return matched / origWords.size; // 0 to 1
+  origWords.forEach((w) => { if (candWords.has(w)) matched++; });
+  return matched / origWords.size;
 }
 
 export async function getLiveNAV(schemeName: string): Promise<NAVResult | null> {
   try {
+    // ── Step 1: Check hardcoded overrides first (fast, accurate) ──
+    const overrideCode = SCHEME_CODE_OVERRIDES[schemeName.toLowerCase().trim()];
+    if (overrideCode) {
+      const navRes = await fetch(`https://api.mfapi.in/mf/${overrideCode}/latest`);
+      const navData = await navRes.json();
+      if (navData?.data?.[0]?.nav) {
+        const nav = parseFloat(navData.data[0].nav);
+        if (nav > 0 && nav < 100000) {
+          return {
+            nav,
+            date: navData.data[0].date,
+            schemeName,
+            schemeCode: overrideCode,
+            matchConfidence: "high",
+            source: "hardcoded",
+          };
+        }
+      }
+    }
+
+    // ── Step 2: Fuzzy search fallback for NEW funds not yet hardcoded ──
+    console.warn(
+      `[NAV] "${schemeName}" not in hardcoded map — falling back to fuzzy search. ` +
+      `If this fund is added permanently, add its scheme code to SCHEME_CODE_OVERRIDES in navHelper.ts.`
+    );
+
     const query = schemeName
       .replace(/[-–]/g, " ")
       .replace(/\s+/g, " ")
@@ -60,51 +105,39 @@ export async function getLiveNAV(schemeName: string): Promise<NAVResult | null> 
     const schemes: MFApiSearchResult[] = await searchRes.json();
 
     if (!schemes || schemes.length === 0) {
-      console.warn(`No NAV search results for: "${schemeName}"`);
+      console.warn(`[NAV] No search results for: "${schemeName}"`);
       return null;
     }
 
     const lower = schemeName.toLowerCase();
-
     const wantsRegular = lower.includes("regular");
-    const wantsDirect = lower.includes("direct");
-    const wantsGrowth =
-      lower.includes("growth") &&
-      !lower.includes("idcw") &&
-      !lower.includes("dividend");
-    const wantsIDCW = lower.includes("idcw") || lower.includes("dividend");
+    const wantsDirect  = lower.includes("direct");
+    const wantsGrowth  = lower.includes("growth") && !lower.includes("idcw") && !lower.includes("dividend");
+    const wantsIDCW    = lower.includes("idcw") || lower.includes("dividend");
 
-    // Score each result: word overlap (most important) + plan/option match
     const scored = schemes.map((s) => {
       const n = s.schemeName.toLowerCase();
-      const overlap = wordOverlapScore(schemeName, s.schemeName); // 0–1
-
+      const overlap = wordOverlapScore(schemeName, s.schemeName);
       let planScore = 0;
       if (wantsRegular && n.includes("regular")) planScore += 1;
-      if (wantsDirect && n.includes("direct")) planScore += 1;
-      if (wantsGrowth && n.includes("growth") && !n.includes("idcw") && !n.includes("dividend")) planScore += 1;
-      if (wantsIDCW && (n.includes("idcw") || n.includes("dividend"))) planScore += 1;
-
-      if (wantsGrowth && (n.includes("idcw") || n.includes("dividend"))) planScore -= 2;
-      if (wantsIDCW && n.includes("growth") && !n.includes("idcw")) planScore -= 2;
-      if (wantsRegular && n.includes("direct")) planScore -= 1;
-      if (wantsDirect && n.includes("regular")) planScore -= 1;
-
-      // Combined score: word overlap dominates, plan match is a tiebreaker
-      const totalScore = overlap * 10 + planScore;
-
-      return { ...s, overlap, totalScore };
+      if (wantsDirect  && n.includes("direct"))  planScore += 1;
+      if (wantsGrowth  && n.includes("growth") && !n.includes("idcw") && !n.includes("dividend")) planScore += 1;
+      if (wantsIDCW    && (n.includes("idcw") || n.includes("dividend"))) planScore += 1;
+      if (wantsGrowth  && (n.includes("idcw") || n.includes("dividend"))) planScore -= 2;
+      if (wantsIDCW    && n.includes("growth") && !n.includes("idcw"))    planScore -= 2;
+      if (wantsRegular && n.includes("direct"))  planScore -= 1;
+      if (wantsDirect  && n.includes("regular")) planScore -= 1;
+      return { ...s, overlap, totalScore: overlap * 10 + planScore };
     });
 
     scored.sort((a, b) => b.totalScore - a.totalScore);
     const best = scored[0];
 
-    // SAFETY GATE: if the best match doesn't share enough words with the
-    // original scheme name, refuse to return it rather than risk a wrong fund.
-    // Require at least 60% of identifying words to overlap.
+    // Reject low-confidence matches — better to show invested amount than wrong NAV
     if (best.overlap < 0.6) {
       console.warn(
-        `Low-confidence NAV match rejected for "${schemeName}" — best candidate was "${best.schemeName}" (${(best.overlap * 100).toFixed(0)}% word overlap). Falling back to invested amount.`
+        `[NAV] Low-confidence match rejected for "${schemeName}" — best was "${best.schemeName}" ` +
+        `(${(best.overlap * 100).toFixed(0)}% overlap). Add scheme code to navHelper.ts to fix.`
       );
       return null;
     }
@@ -112,37 +145,34 @@ export async function getLiveNAV(schemeName: string): Promise<NAVResult | null> 
     const matchConfidence: "high" | "medium" | "low" =
       best.overlap >= 0.85 ? "high" : best.overlap >= 0.7 ? "medium" : "low";
 
-    if (matchConfidence !== "high") {
-      console.warn(
-        `Medium/low-confidence NAV match for "${schemeName}" → matched "${best.schemeName}" (${(best.overlap * 100).toFixed(0)}% overlap). Please verify manually.`
-      );
-    }
+    console.warn(
+      `[NAV] Fuzzy match for "${schemeName}" → "${best.schemeName}" ` +
+      `(${(best.overlap * 100).toFixed(0)}% overlap, ${matchConfidence} confidence). ` +
+      `Scheme code: ${best.schemeCode}. Consider hardcoding this.`
+    );
 
     const navRes = await fetch(`https://api.mfapi.in/mf/${best.schemeCode}/latest`);
     const navData = await navRes.json();
 
     if (navData?.data?.[0]?.nav) {
       const nav = parseFloat(navData.data[0].nav);
-
-      // SAFETY GATE 2: sanity-check the NAV value itself.
-      // Reject clearly broken values (zero, negative, or absurdly large).
       if (!nav || nav <= 0 || nav > 100000) {
-        console.warn(`Suspicious NAV value (${nav}) for "${schemeName}" — rejecting.`);
+        console.warn(`[NAV] Suspicious NAV value (${nav}) for "${schemeName}" — rejecting.`);
         return null;
       }
-
       return {
         nav,
         date: navData.data[0].date,
         schemeName: best.schemeName,
         schemeCode: best.schemeCode,
         matchConfidence,
+        source: "search",
       };
     }
 
     return null;
   } catch (err) {
-    console.error("NAV fetch error for:", schemeName, err);
+    console.error("[NAV] Fetch error for:", schemeName, err);
     return null;
   }
 }

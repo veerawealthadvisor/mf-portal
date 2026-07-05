@@ -3,6 +3,27 @@ import { useState } from "react";
 import { supabase } from "../../../lib/supabase";
 import * as XLSX from "xlsx";
 
+// ── Keep this in sync with lib/navHelper.ts SCHEME_CODE_OVERRIDES ──
+const HARDCODED_SCHEMES = new Set([
+  "axis nifty 100 index fund regular growth",
+  "axis short duration fund - growth",
+  "axis small cap fund growth",
+  "axis treasury advantage fund - growth",
+  "bandhan low duration fund-growth-(regular plan)",
+  "bandhan money market fund--growth-(regular plan)",
+  "bandhan small cap fund regular plan-growth",
+  "edelweiss nifty midcap150 momentum 50 index fund- regular plan growth - growth",
+  "hdfc large and mid cap fund- regular plan-growth",
+  "icici prudential banking and financial services fund - regular plan - growth",
+  "icici prudential nifty bank index fund - growth",
+  "icici prudential ultra short term fund-regular-growth",
+  "kotak small cap fund - growth",
+  "motilal oswal digital india fund regular growth",
+  "motilal oswal midcap fund - regular plan growth",
+  "nippon india growth mid cap fund - growth plan growth option",
+  "parag parikh flexi cap fund-regular-growth",
+]);
+
 export default function AdminUpload() {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -21,25 +42,18 @@ export default function AdminUpload() {
 
   const parseDate = (val: any): string | null => {
     if (!val) return null;
-    // If it's a JS Date object from XLSX
-    if (val instanceof Date) {
-      return val.toISOString().split("T")[0];
-    }
+    if (val instanceof Date) return val.toISOString().split("T")[0];
     const s = String(val).trim();
-    // MM/DD/YYYY
     const mmddyyyy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (mmddyyyy) return `${mmddyyyy[3]}-${mmddyyyy[1].padStart(2, "0")}-${mmddyyyy[2].padStart(2, "0")}`;
-    // DD-MM-YYYY
+    if (mmddyyyy) return `${mmddyyyy[3]}-${mmddyyyy[1].padStart(2,"0")}-${mmddyyyy[2].padStart(2,"0")}`;
     const ddmmyyyy = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-    if (ddmmyyyy) return `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2, "0")}-${ddmmyyyy[1].padStart(2, "0")}`;
-    // DD-Mon-YYYY
+    if (ddmmyyyy) return `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2,"0")}-${ddmmyyyy[1].padStart(2,"0")}`;
     const ddmonyyyy = s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
     if (ddmonyyyy) {
-      const months: any = { Jan:"01",Feb:"02",Mar:"03",Apr:"04",May:"05",Jun:"06",Jul:"07",Aug:"08",Sep:"09",Oct:"10",Nov:"11",Dec:"12" };
-      return `${ddmonyyyy[3]}-${months[ddmonyyyy[2]] || "01"}-${ddmonyyyy[1].padStart(2, "0")}`;
+      const months: any = {Jan:"01",Feb:"02",Mar:"03",Apr:"04",May:"05",Jun:"06",Jul:"07",Aug:"08",Sep:"09",Oct:"10",Nov:"11",Dec:"12"};
+      return `${ddmonyyyy[3]}-${months[ddmonyyyy[2]]||"01"}-${ddmonyyyy[1].padStart(2,"0")}`;
     }
-    // YYYY-MM-DD already
-    if (s.match(/^\d{4}-\d{2}-\d{2}/)) return s.slice(0, 10);
+    if (s.match(/^\d{4}-\d{2}-\d{2}/)) return s.slice(0,10);
     return null;
   };
 
@@ -47,161 +61,108 @@ export default function AdminUpload() {
     if (!dateStr) return "";
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return "";
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  };
+
+  // ── Detect new funds not in the hardcoded map ──
+  const detectNewFunds = (rows1: any[], rows2: any[]): string[] => {
+    const allSchemes = new Set<string>();
+    [...rows1, ...rows2].forEach((row) => {
+      const scheme = String(row["RTA Scheme Name"] || "").trim();
+      if (scheme) allSchemes.add(scheme);
+    });
+    const newFunds: string[] = [];
+    allSchemes.forEach((scheme) => {
+      if (!HARDCODED_SCHEMES.has(scheme.toLowerCase().trim())) {
+        newFunds.push(scheme);
+      }
+    });
+    return newFunds.sort();
   };
 
   const processSheet1 = async (rows: any[]) => {
     let inserted = 0, duplicates = 0, skipped = 0, rejected = 0;
     const investorsNotFound: string[] = [];
-
     for (const row of rows) {
-      const utrn = String(row["UTRN"] || "").trim();
-      const can = String(row["CAN"] || "").trim();
-      const name = String(row["Primary Holder Name"] || "").trim();
-      const fund = String(row["Fund Name"] || "").trim();
-      const scheme = String(row["RTA Scheme Name"] || "").trim();
-      const folio = String(row["Folio Number"] || "").trim();
-      const txnType = String(row["Transaction Type"] || "").trim().toLowerCase();
-      const status = String(row["Transaction Status"] || "").trim().toLowerCase();
-      const responseAmount = parseFloat(row["Response Amount"]) || 0;
-      const responseUnits = parseFloat(row["Response Units"]) || 0;
-      const nav = parseFloat(row["Price"]) || 0;
+      const utrn = String(row["UTRN"]||"").trim();
+      const can = String(row["CAN"]||"").trim();
+      const name = String(row["Primary Holder Name"]||"").trim();
+      const fund = String(row["Fund Name"]||"").trim();
+      const scheme = String(row["RTA Scheme Name"]||"").trim();
+      const folio = String(row["Folio Number"]||"").trim();
+      const txnType = String(row["Transaction Type"]||"").trim().toLowerCase();
+      const status = String(row["Transaction Status"]||"").trim().toLowerCase();
+      const responseAmount = parseFloat(row["Response Amount"])||0;
+      const responseUnits = parseFloat(row["Response Units"])||0;
+      const nav = parseFloat(row["Price"])||0;
       const valueDate = parseDate(row["Value Date"]);
-
-      if (!can || !utrn || !name) continue;
+      if (!can||!utrn||!name) continue;
       if (!status.includes("rta processed")) { rejected++; continue; }
-      if (responseUnits === 0) { skipped++; continue; }
-     // First SIP instalments land in Sheet 1 — process them as SIP txn_type: "sip" with instalment_no: 1
-// (Subsequent instalments are in Sheet 2)
-const processSheet1 = async (rows: any[]) => {
-  let inserted = 0, duplicates = 0, skipped = 0, rejected = 0;
-  const investorsNotFound: string[] = [];
-
-  for (const row of rows) {
-    const utrn = String(row["UTRN"] || "").trim();
-    const can = String(row["CAN"] || "").trim();
-    const name = String(row["Primary Holder Name"] || "").trim();
-    const fund = String(row["Fund Name"] || "").trim();
-    const scheme = String(row["RTA Scheme Name"] || "").trim();
-    const folio = String(row["Folio Number"] || "").trim();
-    const txnType = String(row["Transaction Type"] || "").trim().toLowerCase();
-    const status = String(row["Transaction Status"] || "").trim().toLowerCase();
-    const responseAmount = parseFloat(row["Response Amount"]) || 0;
-    const responseUnits = parseFloat(row["Response Units"]) || 0;
-    const nav = parseFloat(row["Price"]) || 0;
-    const valueDate = parseDate(row["Value Date"]);
-
-    if (!can || !utrn || !name) continue;
-    if (!status.includes("rta processed")) { rejected++; continue; }
-    if (responseUnits === 0) { skipped++; continue; }
-
-    const isSIP = txnType.includes("sip") && !txnType.includes("cancel");
-    const isRedemption = txnType.includes("redeem");
-
-    const finalUnits = isRedemption ? -Math.abs(responseUnits) : responseUnits;
-    const finalAmount = isRedemption ? -Math.abs(responseAmount) : responseAmount;
-    const monthYear = getMonthYear(valueDate);
-
-    const { data: existingInv } = await supabase.from("investors").select("can").eq("can", can).single();
-    if (!existingInv) {
-      if (!investorsNotFound.find(i => i.includes(can))) investorsNotFound.push(`${name} (CAN: ${can})`);
-      skipped++; continue;
-    }
-
-    const { data: existing } = await supabase.from("transactions").select("id").eq("itrn", utrn).maybeSingle();
-    if (existing) { duplicates++; continue; }
-
-    const { error: insertError } = await supabase.from("transactions").insert({
-      itrn: utrn, can, fund_name: fund, scheme_name: scheme,
-      folio_no: folio, amount: finalAmount, units: finalUnits,
-      nav, nav_date: valueDate, transaction_date: valueDate,
-      month_year: monthYear,
-      txn_type: isSIP ? "sip" : isRedemption ? "redemption" : "purchase",
-      instalment_no: isSIP ? 1 : null,   // ← first instalment
-    });
-
-    if (insertError) { console.error("S1 insert error:", insertError.message); skipped++; }
-    else inserted++;
-  }
-
-  return { inserted, duplicates, skipped, rejected, investorsNotFound };
-};
-
+      if (responseUnits===0) { skipped++; continue; }
+      const isSIP = txnType.includes("sip") && !txnType.includes("cancel");
       const isRedemption = txnType.includes("redeem");
       const finalUnits = isRedemption ? -Math.abs(responseUnits) : responseUnits;
       const finalAmount = isRedemption ? -Math.abs(responseAmount) : responseAmount;
       const monthYear = getMonthYear(valueDate);
-
-      const { data: existingInv } = await supabase.from("investors").select("can").eq("can", can).single();
+      const { data: existingInv } = await supabase.from("investors").select("can").eq("can",can).single();
       if (!existingInv) {
-        if (!investorsNotFound.find(i => i.includes(can))) investorsNotFound.push(`${name} (CAN: ${can})`);
+        if (!investorsNotFound.find(i=>i.includes(can))) investorsNotFound.push(`${name} (CAN: ${can})`);
         skipped++; continue;
       }
-
-      const { data: existing } = await supabase.from("transactions").select("id").eq("itrn", utrn).maybeSingle();
+      const { data: existing } = await supabase.from("transactions").select("id").eq("itrn",utrn).maybeSingle();
       if (existing) { duplicates++; continue; }
-
       const { error: insertError } = await supabase.from("transactions").insert({
-        itrn: utrn, can, fund_name: fund, scheme_name: scheme,
-        folio_no: folio, amount: finalAmount, units: finalUnits,
-        nav, nav_date: valueDate, transaction_date: valueDate,
-        month_year: monthYear, txn_type: isRedemption ? "redemption" : "purchase",
-        instalment_no: null,
+        itrn:utrn, can, fund_name:fund, scheme_name:scheme,
+        folio_no:folio, amount:finalAmount, units:finalUnits,
+        nav, nav_date:valueDate, transaction_date:valueDate,
+        month_year:monthYear,
+        txn_type: isSIP?"sip":isRedemption?"redemption":"purchase",
+        instalment_no: isSIP?1:null,
       });
-
-      if (insertError) { console.error("S1 insert error:", insertError.message); skipped++; }
+      if (insertError) { console.error("S1 insert error:",insertError.message); skipped++; }
       else inserted++;
     }
-
     return { inserted, duplicates, skipped, rejected, investorsNotFound };
   };
 
   const processSheet2 = async (rows: any[]) => {
     let inserted = 0, duplicates = 0, skipped = 0, rejected = 0;
     const investorsNotFound: string[] = [];
-
     for (const row of rows) {
-      const utrn = String(row["UTRN"] || "").trim();
-      const can = String(row["CAN"] || "").trim();
-      const name = String(row["Primary Holder Name"] || "").trim();
-      const fund = String(row["Fund Name"] || "").trim();
-      const scheme = String(row["RTA Scheme Name"] || "").trim();
-      const folio = String(row["Folio Number"] || "").trim();
-      const status = String(row["Transaction Status"] || "").trim().toLowerCase();
-      const responseAmount = parseFloat(row["Response Amount"]) || 0;
-      const responseUnits = parseFloat(row["Response Units"]) || 0;
-      const nav = parseFloat(row["Price"]) || 0;
+      const utrn = String(row["UTRN"]||"").trim();
+      const can = String(row["CAN"]||"").trim();
+      const name = String(row["Primary Holder Name"]||"").trim();
+      const fund = String(row["Fund Name"]||"").trim();
+      const scheme = String(row["RTA Scheme Name"]||"").trim();
+      const folio = String(row["Folio Number"]||"").trim();
+      const status = String(row["Transaction Status"]||"").trim().toLowerCase();
+      const responseAmount = parseFloat(row["Response Amount"])||0;
+      const responseUnits = parseFloat(row["Response Units"])||0;
+      const nav = parseFloat(row["Price"])||0;
       const valueDate = parseDate(row["Value Date"]);
-      const instalmentNo = parseInt(row["Instalment \nNo"] || row["Instalment No"] || "0") || null;
-      const amount = parseFloat(row["Amount"]) || 0;
-
-      if (!can || !utrn || !name) continue;
+      const instalmentNo = parseInt(row["Instalment \nNo"]||row["Instalment No"]||"0")||null;
+      const amount = parseFloat(row["Amount"])||0;
+      if (!can||!utrn||!name) continue;
       if (!status.includes("rta processed")) { rejected++; continue; }
-      if (responseUnits === 0) { skipped++; continue; }
-
+      if (responseUnits===0) { skipped++; continue; }
       const monthYear = getMonthYear(valueDate);
-
-      const { data: existingInv } = await supabase.from("investors").select("can").eq("can", can).single();
+      const { data: existingInv } = await supabase.from("investors").select("can").eq("can",can).single();
       if (!existingInv) {
-        if (!investorsNotFound.find(i => i.includes(can))) investorsNotFound.push(`${name} (CAN: ${can})`);
+        if (!investorsNotFound.find(i=>i.includes(can))) investorsNotFound.push(`${name} (CAN: ${can})`);
         skipped++; continue;
       }
-
-      const { data: existing } = await supabase.from("transactions").select("id").eq("itrn", utrn).maybeSingle();
+      const { data: existing } = await supabase.from("transactions").select("id").eq("itrn",utrn).maybeSingle();
       if (existing) { duplicates++; continue; }
-
       const { error: insertError } = await supabase.from("transactions").insert({
-        itrn: utrn, can, fund_name: fund, scheme_name: scheme,
-        folio_no: folio, amount: responseAmount || amount,
-        units: responseUnits, nav, nav_date: valueDate,
-        transaction_date: valueDate, month_year: monthYear,
-        txn_type: "sip", instalment_no: instalmentNo,
+        itrn:utrn, can, fund_name:fund, scheme_name:scheme,
+        folio_no:folio, amount:responseAmount||amount,
+        units:responseUnits, nav, nav_date:valueDate,
+        transaction_date:valueDate, month_year:monthYear,
+        txn_type:"sip", instalment_no:instalmentNo,
       });
-
-      if (insertError) { console.error("S2 insert error:", insertError.message); skipped++; }
+      if (insertError) { console.error("S2 insert error:",insertError.message); skipped++; }
       else inserted++;
     }
-
     return { inserted, duplicates, skipped, rejected, investorsNotFound };
   };
 
@@ -211,37 +172,31 @@ const processSheet1 = async (rows: any[]) => {
     setError("");
     setResults(null);
     setProgress("");
-
     try {
       const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-
+      const workbook = XLSX.read(buffer, { type:"array", cellDates:true });
       const sheetNames = workbook.SheetNames;
-      console.log("Sheets found:", sheetNames);
+      let s1Result = { inserted:0, duplicates:0, skipped:0, rejected:0, investorsNotFound:[] as string[] };
+      let s2Result = { inserted:0, duplicates:0, skipped:0, rejected:0, investorsNotFound:[] as string[] };
+      let rows1: any[] = [], rows2: any[] = [];
 
-      let s1Result = { inserted: 0, duplicates: 0, skipped: 0, rejected: 0, investorsNotFound: [] as string[] };
-      let s2Result = { inserted: 0, duplicates: 0, skipped: 0, rejected: 0, investorsNotFound: [] as string[] };
-
-      // Process Sheet 1 — Transaction Report
       const txnSheet = workbook.Sheets[sheetNames[0]];
       if (txnSheet) {
         setProgress("Processing Sheet 1 — Transactions...");
-        // Skip first 2 rows (title + report period), use row 3 as header
-        const rows = XLSX.utils.sheet_to_json(txnSheet, { range: 2, defval: "" });
-        s1Result = await processSheet1(rows);
+        rows1 = XLSX.utils.sheet_to_json(txnSheet, { range:2, defval:"" });
+        s1Result = await processSheet1(rows1);
       }
-
-      // Process Sheet 2 — Systematic Instalment Report
       if (sheetNames.length > 1) {
         const sipSheet = workbook.Sheets[sheetNames[1]];
         if (sipSheet) {
           setProgress("Processing Sheet 2 — SIP Instalments...");
-          const rows = XLSX.utils.sheet_to_json(sipSheet, { range: 2, defval: "" });
-          s2Result = await processSheet2(rows);
+          rows2 = XLSX.utils.sheet_to_json(sipSheet, { range:2, defval:"" });
+          s2Result = await processSheet2(rows2);
         }
       }
 
-      // Merge results
+      // ── Detect new funds not in hardcoded map ──
+      const newFunds = detectNewFunds(rows1, rows2);
       const allInvestorsNotFound = [...new Set([...s1Result.investorsNotFound, ...s2Result.investorsNotFound])];
 
       setResults({
@@ -255,13 +210,12 @@ const processSheet1 = async (rows: any[]) => {
         },
         investorsNotFound: allInvestorsNotFound,
         sheetsFound: sheetNames.length,
+        newFunds, // ← new funds needing hardcoding
       });
-
     } catch (err: any) {
       setError("Something went wrong: " + err.message);
       console.error(err);
     }
-
     setProgress("");
     setUploading(false);
   };
@@ -291,7 +245,7 @@ const processSheet1 = async (rows: any[]) => {
           <label>Password</label>
           <input type="password" placeholder="Enter admin password" value={password}
             onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleAuth()} />
+            onKeyDown={(e) => e.key==="Enter" && handleAuth()} />
           {error && <p className="err">{error}</p>}
           <button onClick={handleAuth}>Enter →</button>
           <div className="back"><a href="/">← Back to site</a></div>
@@ -309,7 +263,10 @@ const processSheet1 = async (rows: any[]) => {
         body { font-family: 'DM Sans', sans-serif; background: #f0ebe0; }
         .nav { background: var(--navy); padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; }
         .nav-logo { font-family: 'Cormorant Garamond', serif; font-size: 1.2rem; color: var(--gold2); }
+        .nav-right { display: flex; gap: 1rem; align-items: center; }
         .nav-badge { font-size: 0.72rem; background: rgba(201,168,76,0.15); color: var(--gold); padding: 3px 10px; border-radius: 10px; border: 1px solid rgba(201,168,76,0.3); }
+        .nav-btn { background: transparent; border: 1px solid rgba(201,168,76,0.3); color: var(--gold); padding: 0.4rem 1rem; border-radius: 2px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; cursor: pointer; text-decoration: none; transition: all 0.2s; }
+        .nav-btn:hover { background: var(--gold); color: var(--navy); }
         .main { max-width: 760px; margin: 0 auto; padding: 2.5rem 2rem; }
         h1 { font-family: 'Cormorant Garamond', serif; font-size: 2rem; color: var(--navy); margin-bottom: 0.5rem; }
         .subtitle { color: var(--muted); font-size: 0.9rem; margin-bottom: 2rem; font-weight: 300; }
@@ -341,6 +298,11 @@ const processSheet1 = async (rows: any[]) => {
         .warn-investors { margin-top: 1rem; }
         .warn-investors h4 { font-size: 0.8rem; font-weight: 500; color: #92400e; margin-bottom: 0.5rem; }
         .warn-item { font-size: 0.82rem; color: #92400e; background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.3); padding: 0.5rem 0.75rem; border-radius: 4px; margin-bottom: 0.4rem; }
+        .new-fund-box { margin-top: 1rem; background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.25); border-radius: 8px; padding: 1rem 1.25rem; }
+        .new-fund-title { font-size: 0.85rem; font-weight: 600; color: #dc2626; margin-bottom: 0.75rem; }
+        .new-fund-desc { font-size: 0.78rem; color: #6b7280; margin-bottom: 0.75rem; line-height: 1.6; }
+        .new-fund-item { font-size: 0.8rem; color: #dc2626; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); padding: 0.5rem 0.75rem; border-radius: 4px; margin-bottom: 0.4rem; font-family: monospace; }
+        .new-fund-steps { font-size: 0.78rem; color: #374151; background: white; border-radius: 6px; padding: 0.75rem 1rem; margin-top: 0.75rem; line-height: 1.9; border: 1px solid var(--border); }
         .error-box { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); border-radius: 8px; padding: 1rem; color: #dc2626; font-size: 0.85rem; margin-top: 1rem; }
         .instructions { font-size: 0.83rem; color: var(--muted); line-height: 1.9; }
         .instructions li { margin-bottom: 0.25rem; }
@@ -349,7 +311,10 @@ const processSheet1 = async (rows: any[]) => {
 
       <nav className="nav">
         <div className="nav-logo">Veera Karthik · Admin</div>
-        <div className="nav-badge">Admin Panel</div>
+        <div className="nav-right">
+          <a href="/admin/dashboard" className="nav-btn">← Dashboard</a>
+          <span className="nav-badge">Admin Panel</span>
+        </div>
       </nav>
 
       <div className="main">
@@ -361,7 +326,7 @@ const processSheet1 = async (rows: any[]) => {
           <div className="format-note">
             ✅ Upload the <strong>XLSX file directly</strong> — no need to convert to CSV!<br />
             ✅ <strong>Sheet 1</strong> (Transaction Report) — purchases and redemptions<br />
-            ✅ <strong>Sheet 2</strong> (Systematic Instalment Report) — all SIP instalments with instalment numbers<br />
+            ✅ <strong>Sheet 2</strong> (Systematic Instalment Report) — all SIP instalments<br />
             ✅ Only <strong>RTA Processed</strong> transactions imported — failed/rejected automatically skipped<br />
             ✅ UTRN-based duplicate protection — safe to re-upload same file
           </div>
@@ -371,14 +336,14 @@ const processSheet1 = async (rows: any[]) => {
             <div className="drop-icon">{file ? "✅" : "📊"}</div>
             <div className="drop-title">{file ? file.name : "Click to select your XLSX report"}</div>
             <div className="drop-sub">
-              {file ? `${(file.size / 1024).toFixed(1)} KB · Ready to upload`
+              {file ? `${(file.size/1024).toFixed(1)} KB · Ready to upload`
                 : "TransactEezz monthly report (.xlsx) — both sheets will be processed"}
             </div>
           </div>
           <input id="fileInput" type="file" accept=".xlsx,.xls" className="file-input"
-            onChange={(e) => { setFile(e.target.files?.[0] || null); setResults(null); setError(""); }} />
+            onChange={(e) => { setFile(e.target.files?.[0]||null); setResults(null); setError(""); }} />
 
-          <button className="upload-btn" onClick={handleUpload} disabled={!file || uploading}>
+          <button className="upload-btn" onClick={handleUpload} disabled={!file||uploading}>
             {uploading ? "⏳ Processing both sheets..." : "⬆️ Upload and Update Dashboards"}
           </button>
 
@@ -388,10 +353,9 @@ const processSheet1 = async (rows: any[]) => {
           {results && (
             <div className="result-card">
               <div className="result-title">
-                ✅ Upload Complete! — {results.sheetsFound} sheet{results.sheetsFound > 1 ? "s" : ""} processed
+                ✅ Upload Complete — {results.sheetsFound} sheet{results.sheetsFound > 1 ? "s" : ""} processed
               </div>
 
-              {/* Total summary */}
               <div className="result-total">
                 <div className="result-stat">
                   <div className="result-num">{results.total.inserted}</div>
@@ -411,7 +375,6 @@ const processSheet1 = async (rows: any[]) => {
                 </div>
               </div>
 
-              {/* Per sheet breakdown */}
               <div className="sheet-breakdown">
                 <div className="sheet-card">
                   <div className="sheet-title">📋 Sheet 1 — Transactions</div>
@@ -427,6 +390,7 @@ const processSheet1 = async (rows: any[]) => {
                 </div>
               </div>
 
+              {/* ── New investors warning ── */}
               {results.investorsNotFound.length > 0 && (
                 <div className="warn-investors">
                   <h4>⚠️ New investors found — create their login accounts in Supabase → Authentication → Users:</h4>
@@ -435,18 +399,43 @@ const processSheet1 = async (rows: any[]) => {
                   ))}
                 </div>
               )}
+
+              {/* ── New funds warning ── */}
+              {results.newFunds && results.newFunds.length > 0 && (
+                <div className="new-fund-box">
+                  <div className="new-fund-title">
+                    🔴 {results.newFunds.length} New Fund{results.newFunds.length > 1 ? "s" : ""} Detected — NAV Hardcoding Required
+                  </div>
+                  <div className="new-fund-desc">
+                    These funds are not in your hardcoded scheme map. NAV will use fuzzy search (less accurate).
+                    To ensure correct NAV, add their scheme codes to <code>lib/navHelper.ts</code>.
+                  </div>
+                  {results.newFunds.map((f: string, i: number) => (
+                    <div className="new-fund-item" key={i}>⚠️ {f}</div>
+                  ))}
+                  <div className="new-fund-steps">
+                    <strong>How to fix:</strong><br />
+                    1. Open <code>https://api.mfapi.in/mf/search?q=&lt;fund name first 4 words&gt;</code> in browser<br />
+                    2. Find the matching Regular Plan Growth entry → note the <code>schemeCode</code><br />
+                    3. Add to <code>SCHEME_CODE_OVERRIDES</code> in <code>lib/navHelper.ts</code><br />
+                    4. Also add the same entry to <code>HARDCODED_SCHEMES</code> in <code>app/admin/upload/page.tsx</code><br />
+                    5. Deploy → NAV will be accurate from next load
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
 
         <div className="card">
           <h2>📋 Monthly workflow</h2>
-          <ol className="instructions" style={{ paddingLeft: "1rem" }}>
+          <ol className="instructions" style={{ paddingLeft:"1rem" }}>
             <li><span className="step-badge">1</span>Login to <strong>TransactEezz / BSE StarMF</strong> → Reports → Transaction Report</li>
             <li><span className="step-badge">2</span>Select date range → Export as <strong>XLSX</strong></li>
             <li><span className="step-badge">3</span>Upload the <strong>XLSX file directly here</strong> — no conversion needed!</li>
             <li><span className="step-badge">4</span>Both sheets processed automatically — all dashboards update instantly ✅</li>
             <li><span className="step-badge">5</span>If new investors appear, create their login in Supabase → Authentication → Users</li>
+            <li><span className="step-badge">6</span>If new funds appear (red warning), add their scheme codes to navHelper.ts</li>
           </ol>
         </div>
       </div>
