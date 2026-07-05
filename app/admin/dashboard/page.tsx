@@ -3,9 +3,12 @@ import { useState, useEffect } from "react";
 import { supabase } from "../../../lib/supabase";
 import { getLiveNAV } from "../../../lib/navHelper";
 import { useRouter } from "next/navigation";
+import { useSessionGuard } from "../../../lib/sessionGuard";
 
 export default function AdminDashboard() {
   const router = useRouter();
+  useSessionGuard(router);
+
   const [loading, setLoading] = useState(true);
   const [navLoading, setNavLoading] = useState(false);
   const [investors, setInvestors] = useState<any[]>([]);
@@ -16,55 +19,49 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     const fetchData = async () => {
-      // Check admin
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push("/login"); return; }
 
-     const { data: inv, error: invError } = await supabase
-  .from("investors")
-  .select("*")
-  .eq("email", user.email)
-  .single();
+      const { data: inv, error: invError } = await supabase
+        .from("investors")
+        .select("*")
+        .eq("email", user.email)
+        .single();
 
-console.log("Admin check:", inv, invError);
+      console.log("Admin check:", inv, invError);
 
-if (!inv || !inv.is_admin) { router.push("/dashboard"); return; }
+      if (!inv || !inv.is_admin) { router.push("/dashboard"); return; }
 
-      if (!inv) { router.push("/dashboard"); return; }
-
-      // Fetch all investors
       const { data: allInvestors } = await supabase
         .from("investors")
         .select("*")
         .eq("is_admin", false)
         .order("name");
 
-      // Fetch all transactions
       const { data: allTxns } = await supabase
         .from("transactions")
         .select("*")
         .order("transaction_date", { ascending: false });
 
-setInvestors(allInvestors || []);
-setTransactions(allTxns || []);
-setLoading(false);
+      setInvestors(allInvestors || []);
+      setTransactions(allTxns || []);
+      setLoading(false);
 
-// Fetch NAVs one by one in background without blocking UI
-setNavLoading(true);
-const schemes = [...new Set((allTxns || []).map((t: any) => t.scheme_name))];
-const navMap: any = {};
-for (const scheme of schemes) {
-  try {
-    const data = await getLiveNAV(scheme as string);
-    if (data) {
-      navMap[scheme] = data.nav;
-      setFundValues({ ...navMap }); // Update UI after each NAV loads
-    }
-  } catch (e) {
-    console.log("NAV fetch failed for:", scheme);
-  }
-}
-setNavLoading(false);
+      setNavLoading(true);
+      const schemes = [...new Set((allTxns || []).map((t: any) => t.scheme_name))];
+      const navMap: any = {};
+      for (const scheme of schemes) {
+        try {
+          const data = await getLiveNAV(scheme as string);
+          if (data) {
+            navMap[scheme] = data.nav;
+            setFundValues({ ...navMap });
+          }
+        } catch (e) {
+          console.log("NAV fetch failed for:", scheme);
+        }
+      }
+      setNavLoading(false);
     };
     fetchData();
   }, []);
@@ -74,10 +71,8 @@ setNavLoading(false);
     router.push("/");
   };
 
-  // Global calculations
   const totalInvested = transactions.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
 
-  // Current value using live NAVs
   const fundUnitMap: any = {};
   transactions.forEach((t: any) => {
     const key = t.scheme_name;
@@ -94,7 +89,6 @@ setNavLoading(false);
   const totalGain = totalCurrentValue - totalInvested;
   const totalGainPct = totalInvested > 0 ? (totalGain / totalInvested) * 100 : 0;
 
-  // Per investor summary
   const investorSummary = investors.map((inv: any) => {
     const txns = transactions.filter((t: any) => t.can === inv.can);
     const invested = txns.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
@@ -113,18 +107,14 @@ setNavLoading(false);
     return { ...inv, invested, currentValue, gain, gainPct, funds, txnCount: txns.length };
   });
 
-  // Top funds across all investors
   const topFunds = Object.entries(fundUnitMap)
     .map(([scheme, data]: any) => ({
-      scheme,
-      fund: data.fund,
-      invested: data.invested,
+      scheme, fund: data.fund, invested: data.invested,
       currentValue: fundValues[scheme] ? data.units * fundValues[scheme] : data.invested,
       units: data.units,
     }))
     .sort((a, b) => b.invested - a.invested);
 
-  // Monthly totals
   const monthMap: any = {};
   transactions.forEach((t: any) => {
     const m = t.month_year || "";
@@ -134,7 +124,6 @@ setNavLoading(false);
   const months = Object.entries(monthMap).sort();
   const maxMonth = Math.max(...months.map(([, v]: any) => v), 1);
 
-  // Selected investor transactions
   const selectedTxns = selectedInvestor
     ? transactions.filter((t: any) => t.can === selectedInvestor.can)
     : [];
@@ -159,26 +148,20 @@ setNavLoading(false);
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root { --navy: #0a1628; --gold: #c9a84c; --gold2: #e8c97a; --white: #fff; --muted: #6b7280; --border: rgba(0,0,0,0.08); --green: #16a34a; --red: #dc2626; }
         body { font-family: 'DM Sans', sans-serif; background: #f0ebe0; }
-
         .nav { background: var(--navy); padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(201,168,76,0.2); position: sticky; top: 0; z-index: 50; }
         .nav-logo { font-family: 'Cormorant Garamond', serif; font-size: 1.2rem; font-weight: 700; color: var(--gold2); }
         .nav-right { display: flex; align-items: center; gap: 1rem; }
         .nav-btn { background: transparent; border: 1px solid rgba(201,168,76,0.3); color: var(--gold); padding: 0.4rem 1rem; border-radius: 2px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; text-decoration: none; }
         .nav-btn:hover { background: var(--gold); color: var(--navy); }
         .admin-badge { font-size: 0.7rem; background: rgba(201,168,76,0.15); color: var(--gold); padding: 3px 10px; border-radius: 10px; border: 1px solid rgba(201,168,76,0.3); }
-
         .main { max-width: 1200px; margin: 0 auto; padding: 2rem; }
-
         .page-header { margin-bottom: 2rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
         .page-header h1 { font-family: 'Cormorant Garamond', serif; font-size: 1.8rem; color: var(--navy); }
         .page-header p { font-size: 0.85rem; color: var(--muted); margin-top: 0.2rem; }
-
         .view-tabs { display: flex; background: white; border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
         .view-tab { padding: 0.5rem 1.25rem; border-radius: 6px; border: none; background: none; font-family: 'DM Sans', sans-serif; font-size: 0.82rem; color: var(--muted); cursor: pointer; transition: all 0.2s; }
         .view-tab.active { background: var(--navy); color: var(--gold2); font-weight: 500; }
-
         .nav-loading { font-size: 0.72rem; color: var(--gold); background: rgba(201,168,76,0.1); border: 1px solid rgba(201,168,76,0.2); padding: 0.4rem 1rem; border-radius: 10px; display: inline-block; margin-bottom: 1rem; }
-
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
         .stat-card { background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem 1.5rem; }
         .stat-card.navy { background: var(--navy); }
@@ -190,11 +173,9 @@ setNavLoading(false);
         .stat-card.navy .stat-sub { color: rgba(255,255,255,0.35); }
         .green { color: var(--green) !important; }
         .red { color: var(--red) !important; }
-
         .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
         .section-card { background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; }
         .section-card h3 { font-family: 'Cormorant Garamond', serif; font-size: 1.2rem; font-weight: 700; color: var(--navy); margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
-
         .investor-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
         .investor-card { background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; cursor: pointer; transition: all 0.2s; }
         .investor-card:hover { border-color: var(--gold); transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
@@ -207,7 +188,6 @@ setNavLoading(false);
         .gain-badge { display: inline-block; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
         .gain-badge.pos { background: rgba(22,163,74,0.1); color: var(--green); }
         .gain-badge.neg { background: rgba(220,38,38,0.1); color: var(--red); }
-
         .fund-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
         .fund-table th { text-align: left; padding: 0.5rem 0.75rem; font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); font-weight: 400; }
         .fund-table td { padding: 0.7rem 0.75rem; border-bottom: 1px solid rgba(0,0,0,0.04); vertical-align: middle; }
@@ -215,26 +195,22 @@ setNavLoading(false);
         .fund-table tr:hover td { background: rgba(201,168,76,0.03); }
         .fund-name { font-weight: 500; color: var(--navy); font-size: 0.8rem; }
         .fund-amc { font-size: 0.68rem; color: var(--muted); }
-
         .bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 120px; margin-top: 0.5rem; }
         .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }
         .bar { width: 100%; background: var(--gold); border-radius: 3px 3px 0 0; min-height: 3px; transition: all 0.3s; }
         .bar:hover { background: var(--gold2); }
         .bar-label { font-size: 9px; color: var(--muted); text-align: center; }
         .bar-val { font-size: 8px; color: var(--muted); }
-
         .inv-detail-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
         .inv-detail-header h2 { font-family: 'Cormorant Garamond', serif; font-size: 1.5rem; color: var(--navy); }
         .back-btn { background: none; border: 1px solid var(--border); padding: 0.4rem 1rem; border-radius: 4px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; color: var(--muted); cursor: pointer; transition: all 0.2s; }
         .back-btn:hover { border-color: var(--navy); color: var(--navy); }
-
         .txn-list { display: flex; flex-direction: column; gap: 0.6rem; max-height: 400px; overflow-y: auto; }
         .txn-item { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; background: #faf9f6; border-radius: 6px; border: 1px solid rgba(0,0,0,0.04); }
         .txn-scheme { font-size: 0.8rem; font-weight: 500; color: var(--navy); }
         .txn-date { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
         .txn-amount { font-size: 0.88rem; font-weight: 500; color: var(--navy); text-align: right; }
         .txn-units { font-size: 0.7rem; color: var(--muted); margin-top: 2px; text-align: right; }
-
         @media (max-width: 768px) {
           .stats-grid { grid-template-columns: repeat(2, 1fr); }
           .grid2 { grid-template-columns: 1fr; }
@@ -253,8 +229,6 @@ setNavLoading(false);
       </nav>
 
       <div className="main">
-
-        {/* HEADER */}
         <div className="page-header">
           <div>
             <h1>Admin Dashboard</h1>
@@ -272,7 +246,6 @@ setNavLoading(false);
 
         {navLoading && <div className="nav-loading">⏳ Fetching live NAVs from AMFI...</div>}
 
-        {/* GLOBAL STATS */}
         <div className="stats-grid">
           <div className="stat-card navy">
             <div className="stat-label">Total AUM</div>
@@ -298,11 +271,9 @@ setNavLoading(false);
           </div>
         </div>
 
-        {/* GLOBAL VIEW */}
         {view === "global" && (
           <>
             <div className="grid2">
-              {/* Monthly Chart */}
               <div className="section-card">
                 <h3>📊 Monthly Investments</h3>
                 <div className="bar-chart">
@@ -315,8 +286,6 @@ setNavLoading(false);
                   ))}
                 </div>
               </div>
-
-              {/* Top Funds */}
               <div className="section-card">
                 <h3>💼 Top Funds by AUM</h3>
                 <table className="fund-table">
@@ -338,8 +307,6 @@ setNavLoading(false);
                 </table>
               </div>
             </div>
-
-            {/* All Investors Summary */}
             <div className="section-card">
               <h3>👥 All Investors Summary</h3>
               <table className="fund-table">
@@ -367,7 +334,6 @@ setNavLoading(false);
           </>
         )}
 
-        {/* INVESTOR VIEW */}
         {view === "investor" && !selectedInvestor && (
           <>
             <p style={{ color: "var(--muted)", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
@@ -407,7 +373,6 @@ setNavLoading(false);
           </>
         )}
 
-        {/* SELECTED INVESTOR DETAIL */}
         {view === "investor" && selectedInvestor && (
           <>
             <div className="inv-detail-header">
@@ -417,8 +382,6 @@ setNavLoading(false);
               </div>
               <button className="back-btn" onClick={() => setSelectedInvestor(null)}>← All Investors</button>
             </div>
-
-            {/* Investor Stats */}
             <div className="stats-grid" style={{ marginBottom: "1.5rem" }}>
               <div className="stat-card navy">
                 <div className="stat-label">Total Invested</div>
@@ -443,9 +406,7 @@ setNavLoading(false);
                 <div className="stat-sub">{selectedInvestor.txnCount} transactions</div>
               </div>
             </div>
-
             <div className="grid2">
-              {/* Fund Breakdown */}
               <div className="section-card">
                 <h3>💼 Fund Breakdown</h3>
                 <table className="fund-table">
@@ -476,8 +437,6 @@ setNavLoading(false);
                   </tbody>
                 </table>
               </div>
-
-              {/* Recent Transactions */}
               <div className="section-card">
                 <h3>🧾 Transactions</h3>
                 <div className="txn-list">

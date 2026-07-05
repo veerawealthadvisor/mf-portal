@@ -1,74 +1,50 @@
 "use client";
 import { useEffect, useRef } from "react";
 import { supabase } from "./supabase";
-import { useRouter } from "next/navigation";
 
-const TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
-const WARNING_MS = 25 * 60 * 1000; // warn at 25 minutes
+const TIMEOUT_MS = 30 * 60 * 1000;  // change to 30 * 60 * 1000 after testing
+const WARNING_MS = 25 * 60 * 1000; // change to 25 * 60 * 1000 after testing
 
-export function useSessionGuard() {
-  const router = useRouter();
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const warnRef  = useRef<NodeJS.Timeout | null>(null);
+export function useSessionGuard(router: any) {
+  const timerRef  = useRef<any>(null);
+  const warnRef   = useRef<any>(null);
   const warnedRef = useRef(false);
 
-  const clearTimers = () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    if (warnRef.current)  clearTimeout(warnRef.current);
-  };
+  useEffect(() => {
+    const logout = async () => {
+      clearTimeout(timerRef.current);
+      clearTimeout(warnRef.current);
+      await supabase.auth.signOut();
+      router.push("/login?reason=timeout");
+    };
 
-  const logout = async () => {
-    clearTimers();
-    await supabase.auth.signOut();
-    router.push("/login?reason=timeout");
-  };
+    const resetTimer = () => {
+      clearTimeout(timerRef.current);
+      clearTimeout(warnRef.current);
+      warnedRef.current = false;
 
-  const resetTimer = () => {
-    clearTimers();
-    warnedRef.current = false;
-
-    // Warn at 25 minutes
-    warnRef.current = setTimeout(() => {
-      if (!warnedRef.current) {
+      warnRef.current = setTimeout(() => {
         warnedRef.current = true;
         const stay = window.confirm(
           "⏰ You have been inactive for 25 minutes.\n\nClick OK to stay logged in, or Cancel to log out."
         );
-        if (stay) {
-          resetTimer(); // reset full 30 min on confirmation
-        } else {
-          logout();
-        }
-      }
-    }, WARNING_MS);
+        if (stay) resetTimer();
+        else logout();
+      }, WARNING_MS);
 
-    // Force logout at 30 minutes
-    timerRef.current = setTimeout(() => {
-      logout();
-    }, TIMEOUT_MS);
-  };
-
-  useEffect(() => {
-    // Events that count as activity
-    const events = ["mousedown", "mousemove", "keydown", "scroll", "touchstart", "click"];
-
-    const handleActivity = () => resetTimer();
-
-    events.forEach((e) => window.addEventListener(e, handleActivity, { passive: true }));
-    resetTimer(); // start timer on mount
-
-    // Also handle tab visibility — pause timer when tab is hidden
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        resetTimer();
-      }
+      timerRef.current = setTimeout(() => {
+        logout();
+      }, TIMEOUT_MS);
     };
-    document.addEventListener("visibilitychange", handleVisibility);
+
+    const events = ["mousedown", "mousemove", "keydown", "scroll", "touchstart", "click"];
+    events.forEach((e) => window.addEventListener(e, resetTimer, { passive: true }));
+    resetTimer();
 
     return () => {
-      clearTimers();
-      events.forEach((e) => window.removeEventListener(e, handleActivity));
-      document.removeEventListener("visibilitychange", handleVisibility);
+      clearTimeout(timerRef.current);
+      clearTimeout(warnRef.current);
+      events.forEach((e) => window.removeEventListener(e, resetTimer));
     };
   }, []);
 }

@@ -96,7 +96,7 @@ function DonutChart({ data, centerLabel, centerValue, size = 160 }: any) {
 
 export default function Dashboard() {
   const router = useRouter();
-  useSessionGuard();
+  useSessionGuard(router);
   const [investor, setInvestor] = useState<any>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [funds, setFunds] = useState<any[]>([]);
