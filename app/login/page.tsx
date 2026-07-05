@@ -2,9 +2,12 @@
 import { useState } from "react";
 import { supabase } from "../../lib/supabase";
 import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+const timedOut = searchParams.get("reason") === "timeout";
   const [tab, setTab] = useState<"password" | "otp">("otp");
 
   const [email, setEmail] = useState("");
@@ -218,7 +221,20 @@ export default function LoginPage() {
             <h1>Veera Karthik</h1>
             <p>Investor Portal · ARN 355717</p>
           </div>
-
+{timedOut && (
+  <div style={{
+    background: "rgba(251,191,36,0.1)",
+    border: "1px solid rgba(251,191,36,0.3)",
+    color: "#d97706",
+    padding: "0.75rem 1rem",
+    borderRadius: "6px",
+    fontSize: "0.82rem",
+    marginBottom: "1.25rem",
+    textAlign: "center",
+  }}>
+    ⏰ You were logged out after 30 minutes of inactivity. Please log in again.
+  </div>
+)}
           <div className="tabs">
             <button className={`tab-btn ${tab === "otp" ? "active" : ""}`} onClick={() => { setTab("otp"); setError(""); setOtpError(""); }}>
               📱 Login with OTP

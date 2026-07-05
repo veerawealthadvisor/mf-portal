@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase";
 import { getLiveNAV } from "../../lib/navHelper";
 import { useRouter } from "next/navigation";
+import { useSessionGuard } from "../../lib/sessionGuard";
 
 // Classify fund into category
 function classifyFund(schemeName: string): { type: "equity" | "debt", subtype: string } {
@@ -95,6 +96,7 @@ function DonutChart({ data, centerLabel, centerValue, size = 160 }: any) {
 
 export default function Dashboard() {
   const router = useRouter();
+  useSessionGuard();
   const [investor, setInvestor] = useState<any>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [funds, setFunds] = useState<any[]>([]);
