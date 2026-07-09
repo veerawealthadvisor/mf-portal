@@ -4,12 +4,12 @@ import { supabase } from "../../../lib/supabase";
 import { useRouter } from "next/navigation";
 
 const GOAL_TYPES = [
-  { type: "retirement", label: "Retirement", icon: "🏖️", color: "#c9a84c" },
-  { type: "education", label: "Child's Education", icon: "🎓", color: "#3b82f6" },
-  { type: "marriage", label: "Child's Marriage", icon: "💍", color: "#ec4899" },
-  { type: "house", label: "Buy a House", icon: "🏠", color: "#16a34a" },
-  { type: "car", label: "Buy a Car", icon: "🚗", color: "#8b5cf6" },
-  { type: "holiday", label: "Holiday Planning", icon: "✈️", color: "#0891b2" },
+  { type: "retirement", label: "Retirement", icon: "🏖️", pdfLabel: "[RET]", color: "#c9a84c" },
+  { type: "education", label: "Child's Education", icon: "🎓", pdfLabel: "[EDU]", color: "#3b82f6" },
+  { type: "marriage", label: "Child's Marriage", icon: "💍", pdfLabel: "[MAR]", color: "#ec4899" },
+  { type: "house", label: "Buy a House", icon: "🏠", pdfLabel: "[HSE]", color: "#16a34a" },
+  { type: "car", label: "Buy a Car", icon: "🚗", pdfLabel: "[CAR]", color: "#8b5cf6" },
+  { type: "holiday", label: "Holiday Planning", icon: "✈️", pdfLabel: "[HOL]", color: "#0891b2" },
 ];
 
 function formatINR(val: number) {
@@ -57,6 +57,10 @@ export default function AdminGoalsPage() {
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [funds, setFunds] = useState<any[]>([]);
+  const [totalInvested, setTotalInvested] = useState(0);
+
   const showToast = (msg: string, type: "success" | "error" = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
@@ -82,6 +86,18 @@ export default function AdminGoalsPage() {
     setEditGoal(null);
     setGoalsLoading(true);
     const { data } = await supabase.from("goals").select("*").eq("investor_id", inv.id).order("target_year");
+
+    // Fetch investor transactions for PDF fund breakdown
+    const { data: txns } = await supabase.from("transactions").select("*").eq("can", inv.can);
+    const fundMap: any = {};
+    (txns || []).forEach((t: any) => {
+      if (!fundMap[t.scheme_name]) fundMap[t.scheme_name] = { scheme: t.scheme_name, fund: t.fund_name, invested: 0, units: 0 };
+      fundMap[t.scheme_name].invested += parseFloat(t.amount) || 0;
+      fundMap[t.scheme_name].units += parseFloat(t.units) || 0;
+    });
+    const fundList = Object.values(fundMap);
+    setFunds(fundList);
+    setTotalInvested((txns || []).reduce((s: number, t: any) => s + (parseFloat(t.amount) || 0), 0));
     setGoals(data || []);
     setGoalsLoading(false);
   };
@@ -143,6 +159,415 @@ export default function AdminGoalsPage() {
       showToast(`🗑️ "${goalName}" deleted`);
     }
     setDeleting(null);
+  };
+
+
+  const downloadPDF = async () => {
+    if (!selectedInvestor || goals.length === 0) return;
+    setPdfLoading(true);
+    try {
+      const { default: jsPDF } = await import("jspdf");
+      const { default: autoTable } = await import("jspdf-autotable");
+      const investor = selectedInvestor;
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      (doc as any).setCharSpace(0); // Fix random letter spacing issue in jsPDF
+      const W = 210, H = 297;
+      const NAVY = [10, 22, 40];
+      const GOLD = [201, 168, 76];
+      const WHITE = [255, 255, 255];
+      const MUTED = [107, 114, 128];
+      const GREEN = [22, 163, 74];
+      const RED = [220, 38, 38];
+
+      // ── COVER PAGE ──
+      doc.setFillColor(...NAVY as [number,number,number]);
+      doc.rect(0, 0, W, H, "F");
+      doc.setFillColor(8, 18, 34);
+      doc.rect(0, 0, W, 58, "F");
+      doc.setFillColor(...GOLD as [number,number,number]);
+      doc.rect(0, 58, W, 1.5, "F");
+      // Load logo from public folder
+      try {
+        const logoRes = await fetch("/icons/icon-512x512.png");
+        const logoBlob = await logoRes.blob();
+        const logoDataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(logoBlob);
+        });
+        doc.addImage(logoDataUrl, "PNG", 8, 6, 22, 22);
+      } catch {
+        // Fallback to VK circle if logo fails
+        doc.setFillColor(...GOLD as [number,number,number]);
+        doc.circle(20, 20, 11, "F");
+        doc.setFillColor(8, 18, 34);
+        doc.circle(20, 20, 8.5, "F");
+        doc.setTextColor(...GOLD as [number,number,number]);
+        doc.setFontSize(9); doc.setFont("helvetica", "bold");
+        doc.text("VK", 20, 23, { align: "center" });
+      }
+      doc.setTextColor(...GOLD as [number,number,number]);
+      doc.setFontSize(13); doc.setFont("helvetica", "bold");
+      doc.text("Veera Karthik Subburaj", 36, 17);
+      doc.setTextColor(180, 190, 200);
+      doc.setFontSize(8); doc.setFont("helvetica", "normal");
+      doc.text("AMFI Registered Mutual Fund Distributor  |  ARN: 355717", 36, 24);
+      doc.text("8148582571  |  veerawealthadvisor@gmail.com", 36, 30);
+      doc.text("investwithveera.vercel.app", 36, 36);
+      doc.setTextColor(...GOLD as [number,number,number]);
+      doc.setFontSize(16); doc.setFont("helvetica", "bold");
+      doc.text("Comprehensive Goal Analysis & Wealth Planning Report", W / 2, 47, { align: "center" });
+      doc.setTextColor(203, 213, 225);
+      doc.setFontSize(8.5); doc.setFont("helvetica", "italic");
+      doc.text("A Vision for a Happy & Prosperous Life", W / 2, 54, { align: "center" });
+
+      // Client info bar
+      doc.setFillColor(15, 31, 61);
+      doc.rect(0, 59.5, W, 22, "F");
+      doc.setTextColor(156, 163, 175);
+      doc.setFontSize(7.5); doc.setFont("helvetica", "normal");
+      doc.text("Client Name:", 15, 67);
+      doc.setTextColor(...WHITE as [number,number,number]);
+      doc.setFontSize(11); doc.setFont("helvetica", "bold");
+      doc.text(investor.name || "Investor", 15, 74);
+      const infoDate = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+      doc.setTextColor(156, 163, 175);
+      doc.setFontSize(7.5); doc.setFont("helvetica", "normal");
+      doc.text(`CAN: ${investor.can}`, W - 15, 67, { align: "right" });
+      doc.text(`Report Date: ${infoDate}  |  Portfolio: ${formatINR(totalInvested)}`, W - 15, 74, { align: "right" });
+
+      // Summary stat cards
+      const totalCorpusRequired = goals.reduce((s: number, g: any) => {
+        const yrs = Math.max(1, g.target_year - currentYear);
+        return s + calcFutureValue(g.target_amount, g.inflation_rate, yrs);
+      }, 0);
+      const totalNetShortfall = goals.reduce((s: number, g: any) => {
+        const yrs = Math.max(1, g.target_year - currentYear);
+        const fv = calcFutureValue(g.target_amount, g.inflation_rate, yrs);
+        const corpus = totalInvested / Math.max(goals.length, 1);
+        const fvCorpus = calcFutureValue(corpus, g.expected_return, yrs);
+        return s + Math.max(0, fv - fvCorpus);
+      }, 0);
+      const totalMonthlySIP = goals.reduce((s: number, g: any) => {
+        const yrs = Math.max(1, g.target_year - currentYear);
+        const fv = calcFutureValue(g.target_amount, g.inflation_rate, yrs);
+        const corpus = totalInvested / Math.max(goals.length, 1);
+        return s + calcRequiredSIP(fv, corpus, g.expected_return, yrs);
+      }, 0);
+      const statCards = [
+        { label: "Identified Goals", value: String(goals.length), color: GOLD },
+        { label: "Projected Corpus Needed", value: formatINR(totalCorpusRequired), color: GOLD },
+        { label: "Net Planning Shortfall", value: formatINR(totalNetShortfall), color: RED },
+        { label: "Est. Monthly Contribution", value: `₹${Math.round(totalMonthlySIP).toLocaleString("en-IN")}`, color: GREEN },
+      ];
+      const scW = (W - 10) / 4;
+      statCards.forEach((sc, i) => {
+        const sx = 5 + i * scW;
+        doc.setFillColor(15, 28, 54); doc.rect(sx, 82, scW - 2, 18, "F");
+        doc.setFillColor(...sc.color as [number,number,number]); doc.rect(sx, 82, 2, 18, "F");
+        doc.setTextColor(130, 140, 155); doc.setFontSize(6.5); doc.setFont("helvetica", "normal");
+        doc.text(sc.label, sx + 5, 88);
+        doc.setTextColor(...sc.color as [number,number,number]); doc.setFontSize(8.5); doc.setFont("helvetica", "bold");
+        doc.text(sc.value, sx + 5, 96);
+      });
+
+      // Goals list on cover
+      let gy = 106;
+      const goalRowH = 18;
+      goals.slice(0, 6).forEach((goal: any) => {
+        const yrs = Math.max(1, goal.target_year - currentYear);
+        const fv = calcFutureValue(goal.target_amount, goal.inflation_rate, yrs);
+        const corpus = totalInvested / Math.max(goals.length, 1);
+        const fvCorpus = calcFutureValue(corpus, goal.expected_return, yrs);
+        const sip = calcRequiredSIP(fv, corpus, goal.expected_return, yrs);
+        const pct = Math.min(100, (fvCorpus / fv) * 100);
+        const gInfo = GOAL_TYPES.find((gt: any) => gt.type === goal.goal_type);
+        const bColor = pct >= 75 ? GREEN : pct >= 40 ? GOLD : RED;
+        doc.setFillColor(14, 26, 50); doc.rect(5, gy, W - 10, goalRowH - 1, "F");
+        doc.setTextColor(...WHITE as [number,number,number]); doc.setFontSize(8.5); doc.setFont("helvetica", "bold");
+        doc.text(`${(gInfo as any)?.pdfLabel || ""} ${goal.goal_name}`, 10, gy + 6);
+        doc.setTextColor(130, 140, 155); doc.setFontSize(6.5); doc.setFont("helvetica", "normal");
+        doc.text(`${goal.target_year}  |  Target: ${formatINR(fv)}  |  SIP: ${formatINR(Math.round(sip))}/mo`, 10, gy + 12);
+        const barX = 130, barW = W - barX - 15;
+        doc.setFillColor(30, 45, 75); doc.roundedRect(barX, gy + 4, barW, 5, 1, 1, "F");
+        doc.setFillColor(...bColor as [number,number,number]); doc.roundedRect(barX, gy + 4, Math.max(2, barW * pct / 100), 5, 1, 1, "F");
+        doc.setTextColor(...bColor as [number,number,number]); doc.setFontSize(6.5); doc.setFont("helvetica", "bold");
+        doc.text(`${pct.toFixed(0)}%`, W - 12, gy + 8, { align: "right" });
+        gy += goalRowH;
+      });
+
+      // Bottom charts + assumptions
+      const bottomY = 210;
+      doc.setFillColor(...GOLD as [number,number,number]); doc.rect(0, bottomY - 2, W, 1, "F");
+      doc.setTextColor(...GOLD as [number,number,number]); doc.setFontSize(8); doc.setFont("helvetica", "bold");
+      doc.text("Current Asset Allocation", 15, bottomY + 6);
+      doc.text("Summary of Assumptions", W / 2 + 10, bottomY + 6);
+
+      const equityKeywords = ["equity", "flexi", "large", "mid", "small", "multi", "value", "growth", "elss", "nifty", "sensex"];
+      let equityAmt = 0, debtAmt = 0;
+      funds.forEach((f: any) => {
+        const name = (f.scheme + " " + f.fund).toLowerCase();
+        if (equityKeywords.some((k: string) => name.includes(k))) equityAmt += f.invested;
+        else debtAmt += f.invested;
+      });
+      const totalForPie = equityAmt + debtAmt || 1;
+      const equityPct = equityAmt / totalForPie;
+      const debtPct = debtAmt / totalForPie;
+      const pieX = 40, pieY = bottomY + 30, pieR = 22;
+      const equityAngle = equityPct * 2 * Math.PI;
+      const steps = 60;
+      doc.setFillColor(201, 168, 76);
+      for (let s = 0; s < steps; s++) {
+        const a1 = (s / steps) * equityAngle - Math.PI / 2;
+        const a2 = ((s + 1) / steps) * equityAngle - Math.PI / 2;
+        doc.triangle(pieX, pieY, pieX + pieR * Math.cos(a1), pieY + pieR * Math.sin(a1), pieX + pieR * Math.cos(a2), pieY + pieR * Math.sin(a2), "F");
+      }
+      doc.setFillColor(59, 130, 246);
+      for (let s = 0; s < steps; s++) {
+        const a1 = equityAngle + (s / steps) * (2 * Math.PI - equityAngle) - Math.PI / 2;
+        const a2 = equityAngle + ((s + 1) / steps) * (2 * Math.PI - equityAngle) - Math.PI / 2;
+        doc.triangle(pieX, pieY, pieX + pieR * Math.cos(a1), pieY + pieR * Math.sin(a1), pieX + pieR * Math.cos(a2), pieY + pieR * Math.sin(a2), "F");
+      }
+      doc.setFillColor(...NAVY as [number,number,number]); doc.circle(pieX, pieY, pieR * 0.55, "F");
+      doc.setTextColor(...WHITE as [number,number,number]); doc.setFontSize(7); doc.setFont("helvetica", "bold");
+      doc.text(`${Math.round(equityPct * 100)}%`, pieX, pieY - 2, { align: "center" });
+      doc.setFontSize(5.5); doc.setFont("helvetica", "normal");
+      doc.text("Equity", pieX, pieY + 3, { align: "center" });
+      doc.setFillColor(201, 168, 76); doc.rect(pieX + pieR + 5, bottomY + 20, 6, 4, "F");
+      doc.setTextColor(...WHITE as [number,number,number]); doc.setFontSize(7);
+      doc.text(`Equity: ${Math.round(equityPct * 100)}%`, pieX + pieR + 13, bottomY + 24);
+      doc.setFillColor(59, 130, 246); doc.rect(pieX + pieR + 5, bottomY + 27, 6, 4, "F");
+      doc.text(`Debt: ${Math.round(debtPct * 100)}%`, pieX + pieR + 13, bottomY + 31);
+
+      const avgInflation = goals.length > 0 ? (goals.reduce((s: number, g: any) => s + g.inflation_rate, 0) / goals.length).toFixed(1) : "6.0";
+      const avgReturn = goals.length > 0 ? (goals.reduce((s: number, g: any) => s + g.expected_return, 0) / goals.length).toFixed(1) : "12.0";
+      const avgYears = goals.length > 0 ? Math.round(goals.reduce((s: number, g: any) => s + Math.max(1, g.target_year - currentYear), 0) / goals.length) : 0;
+      const riskProfile = parseFloat(avgReturn) >= 14 ? "Aggressive" : parseFloat(avgReturn) >= 11 ? "Moderate" : "Conservative";
+      const assumRows = [
+        ["Avg. Inflation Rate", `${avgInflation}%`],
+        ["Avg. Expected Return", `${avgReturn}%`],
+        ["Risk Profile", riskProfile],
+        ["Avg. Time Horizon", `${avgYears} yrs`],
+        ["Portfolio Value", formatINR(totalInvested)],
+      ];
+      const tX = W / 2 + 10;
+      let tY = bottomY + 13;
+      assumRows.forEach(([label, val]) => {
+        doc.setFillColor(14, 26, 50); doc.rect(tX, tY, W - tX - 5, 8, "F");
+        doc.setTextColor(130, 140, 155); doc.setFontSize(6.5); doc.setFont("helvetica", "normal");
+        doc.text(label, tX + 3, tY + 5.5);
+        doc.setTextColor(...GOLD as [number,number,number]); doc.setFont("helvetica", "bold");
+        doc.text(val, W - 8, tY + 5.5, { align: "right" });
+        tY += 9;
+      });
+
+      // Footer
+      doc.setFillColor(6, 14, 28); doc.rect(0, H - 15, W, 15, "F");
+      doc.setFillColor(...GOLD as [number,number,number]); doc.rect(0, H - 15, W, 0.5, "F");
+      doc.setTextColor(156, 163, 175); doc.setFontSize(6.5); doc.setFont("helvetica", "normal");
+      doc.text("Mutual fund investments are subject to market risks. Please read all scheme-related documents carefully.", W / 2, H - 9, { align: "center" });
+      doc.setTextColor(...GOLD as [number,number,number]); doc.setFontSize(7); doc.setFont("helvetica", "bold");
+      doc.text("Veera Karthik Subburaj  |  ARN: 355717  |  8148582571", W / 2, H - 4, { align: "center" });
+
+      // ── PAGE 2: GOALS SUMMARY ──
+      doc.addPage();
+      doc.setFillColor(...NAVY as [number,number,number]); doc.rect(0, 0, W, 22, "F");
+      doc.setFillColor(...GOLD as [number,number,number]); doc.rect(0, 22, W, 1, "F");
+      doc.setTextColor(...GOLD as [number,number,number]); doc.setFontSize(14); doc.setFont("helvetica", "bold");
+      doc.text("Goals Summary", 15, 15);
+      doc.setTextColor(156, 163, 175); doc.setFontSize(8); doc.setFont("helvetica", "normal");
+      doc.text(investor.name || "", W - 15, 15, { align: "right" });
+
+      const totalRequired = goals.reduce((s: number, g: any) => {
+        const years = Math.max(1, g.target_year - currentYear);
+        return s + calcFutureValue(g.target_amount, g.inflation_rate, years);
+      }, 0);
+      const totalShortfall = goals.reduce((s: number, g: any) => {
+        const years = Math.max(1, g.target_year - currentYear);
+        const fv = calcFutureValue(g.target_amount, g.inflation_rate, years);
+        const corpus = totalInvested / Math.max(goals.length, 1);
+        const fvCorpus = calcFutureValue(corpus, g.expected_return, years);
+        return s + Math.max(0, fv - fvCorpus);
+      }, 0);
+      const totalSIP = goals.reduce((s: number, g: any) => {
+        const years = Math.max(1, g.target_year - currentYear);
+        const fv = calcFutureValue(g.target_amount, g.inflation_rate, years);
+        const corpus = totalInvested / Math.max(goals.length, 1);
+        return s + calcRequiredSIP(fv, corpus, g.expected_return, years);
+      }, 0);
+
+      let y = 32;
+      const cards = [
+        { label: "Total Goals", value: String(goals.length), color: NAVY },
+        { label: "Total Corpus Required", value: formatINR(totalRequired), color: NAVY },
+        { label: "Total Shortfall", value: formatINR(totalShortfall), color: RED },
+        { label: "Additional SIP Needed", value: `₹${Math.round(totalSIP).toLocaleString("en-IN")}/mo`, color: [201, 168, 76] },
+      ];
+      const cardW = (W - 30) / 4;
+      cards.forEach((card, i) => {
+        const cx = 15 + i * (cardW + 2);
+        doc.setFillColor(...NAVY as [number,number,number]); doc.roundedRect(cx, y, cardW, 22, 2, 2, "F");
+        doc.setFillColor(...card.color as [number,number,number]); doc.rect(cx, y, 2, 22, "F");
+        doc.setTextColor(156, 163, 175); doc.setFontSize(7); doc.setFont("helvetica", "normal");
+        doc.text(card.label, cx + 5, y + 8);
+        doc.setTextColor(...WHITE as [number,number,number]); doc.setFontSize(9); doc.setFont("helvetica", "bold");
+        doc.text(card.value, cx + 5, y + 17);
+      });
+      y += 30;
+
+      const tableRows = goals.map((g: any) => {
+        const years = Math.max(1, g.target_year - currentYear);
+        const fv = calcFutureValue(g.target_amount, g.inflation_rate, years);
+        const corpus = totalInvested / Math.max(goals.length, 1);
+        const fvCorpus = calcFutureValue(corpus, g.expected_return, years);
+        const shortfall = Math.max(0, fv - fvCorpus);
+        const sip = calcRequiredSIP(fv, corpus, g.expected_return, years);
+        const pct = Math.min(100, (fvCorpus / fv) * 100);
+        const goalInfo = GOAL_TYPES.find((gt: any) => gt.type === g.goal_type);
+        return [
+          `${(goalInfo as any)?.pdfLabel || ""} ${g.goal_name}`,
+          String(g.target_year), `${years} yrs`,
+          formatINR(fv), formatINR(fvCorpus),
+          formatINR(shortfall), `₹${Math.round(sip).toLocaleString("en-IN")}/mo`,
+          `${pct.toFixed(0)}%`,
+        ];
+      });
+
+      autoTable(doc, {
+        startY: y,
+        head: [["Goal", "Year", "Left", "Target Corpus", "Achieved", "Shortfall", "SIP Needed", "Progress"]],
+        body: tableRows,
+        theme: "grid",
+        headStyles: { fillColor: NAVY as [number,number,number], textColor: GOLD as [number,number,number], fontSize: 7, fontStyle: "bold" },
+        bodyStyles: { fontSize: 7, textColor: [30, 30, 30] },
+        alternateRowStyles: { fillColor: [248, 245, 240] },
+        columnStyles: { 5: { textColor: RED as [number,number,number] }, 6: { textColor: GREEN as [number,number,number] } },
+        margin: { left: 15, right: 15 },
+      });
+
+      // Individual goal pages
+      for (const goal of goals) {
+        doc.addPage();
+        const years = Math.max(1, goal.target_year - currentYear);
+        const fv = calcFutureValue(goal.target_amount, goal.inflation_rate, years);
+        const corpus = totalInvested / Math.max(goals.length, 1);
+        const fvCorpus = calcFutureValue(corpus, goal.expected_return, years);
+        const shortfall = Math.max(0, fv - fvCorpus);
+        const sip = calcRequiredSIP(fv, corpus, goal.expected_return, years);
+        const pct = Math.min(100, (fvCorpus / fv) * 100);
+        const goalInfo = GOAL_TYPES.find((gt: any) => gt.type === goal.goal_type);
+
+        doc.setFillColor(...NAVY as [number,number,number]); doc.rect(0, 0, W, 22, "F");
+        doc.setFillColor(...GOLD as [number,number,number]); doc.rect(0, 22, W, 1, "F");
+        doc.setTextColor(...GOLD as [number,number,number]); doc.setFontSize(14); doc.setFont("helvetica", "bold");
+        doc.text(`${(goalInfo as any)?.pdfLabel || ""} ${goal.goal_name}`, 15, 15);
+        doc.setTextColor(156, 163, 175); doc.setFontSize(8);
+        doc.text(investor.name || "", W - 15, 15, { align: "right" });
+
+        let ggy = 30;
+        const gCards = [
+          { label: "Target Amount (Today)", value: formatINR(goal.target_amount) },
+          { label: `Inflation Adjusted (${goal.target_year})`, value: formatINR(fv) },
+          { label: "Current Corpus", value: formatINR(fvCorpus) },
+          { label: "Shortfall", value: formatINR(shortfall) },
+          { label: "Additional SIP Needed", value: `₹${Math.round(sip).toLocaleString("en-IN")}/mo` },
+          { label: "Years Remaining", value: `${years} years` },
+        ];
+        const gcW = (W - 30) / 3;
+        gCards.forEach((card, i) => {
+          const row = Math.floor(i / 3); const col = i % 3;
+          const cx = 15 + col * (gcW + 2); const cy = ggy + row * 24;
+          doc.setFillColor(...NAVY as [number,number,number]); doc.roundedRect(cx, cy, gcW, 20, 2, 2, "F");
+          doc.setTextColor(156, 163, 175); doc.setFontSize(7); doc.setFont("helvetica", "normal");
+          doc.text(card.label, cx + 5, cy + 7);
+          doc.setTextColor(...(i === 3 ? RED : i === 4 ? GREEN : WHITE) as [number,number,number]);
+          doc.setFontSize(9); doc.setFont("helvetica", "bold");
+          doc.text(card.value, cx + 5, cy + 15);
+        });
+        ggy += 55;
+
+        doc.setFillColor(...NAVY as [number,number,number]); doc.setFontSize(9); doc.setFont("helvetica", "bold");
+        doc.setTextColor(...NAVY as [number,number,number]);
+        doc.text(`Goal Progress: ${pct.toFixed(1)}%`, 15, ggy); ggy += 5;
+        doc.setFillColor(229, 231, 235); doc.roundedRect(15, ggy, W - 30, 8, 2, 2, "F");
+        const barColor = pct >= 75 ? GREEN : pct >= 40 ? GOLD : RED;
+        doc.setFillColor(...barColor as [number,number,number]); doc.roundedRect(15, ggy, Math.max(4, (W - 30) * pct / 100), 8, 2, 2, "F");
+        ggy += 15;
+
+        doc.setFontSize(10); doc.setFont("helvetica", "bold"); doc.setTextColor(...NAVY as [number,number,number]);
+        doc.text("Mapped Investments", 15, ggy); ggy += 5;
+        const totalFundInvested = funds.reduce((s: number, f: any) => s + f.invested, 0) || 1;
+        const fundRows = funds.map((f: any, idx: number) => [
+          String(idx + 1),
+          f.scheme.length > 40 ? f.scheme.slice(0, 40) + "…" : f.scheme,
+          f.fund, formatINR(f.invested),
+          `${((f.invested / totalFundInvested) * 100).toFixed(1)}%`,
+        ]);
+        autoTable(doc, {
+          startY: ggy,
+          head: [["#", "Scheme Name", "Fund House", "Amount Invested", "Allocation"]],
+          body: fundRows.length > 0 ? fundRows : [["—", "No investments mapped yet", "", "", ""]],
+          theme: "grid",
+          headStyles: { fillColor: NAVY as [number,number,number], textColor: GOLD as [number,number,number], fontSize: 7, fontStyle: "bold" },
+          bodyStyles: { fontSize: 7, textColor: [30, 30, 30] },
+          alternateRowStyles: { fillColor: [248, 245, 240] },
+          margin: { left: 15, right: 15 },
+        });
+        const finalY = (doc as any).lastAutoTable?.finalY || ggy + 40;
+        doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(...GOLD as [number,number,number]);
+        doc.text("Recommendation", 15, finalY + 10);
+        doc.setTextColor(...NAVY as [number,number,number]); doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+        if (shortfall <= 0) {
+          doc.setTextColor(...GREEN as [number,number,number]);
+          doc.text("Your existing investments are on track to meet this goal! Keep investing consistently.", 15, finalY + 18);
+        } else {
+          doc.text(`To achieve this goal, consider increasing your monthly SIP by ₹${Math.round(sip).toLocaleString("en-IN")}.`, 15, finalY + 18);
+          doc.text(`Alternatively, a one-time investment of ${formatINR(shortfall / Math.pow(1 + goal.expected_return / 100, years))} today can bridge this gap.`, 15, finalY + 25);
+        }
+      }
+
+      // Last page: strategy summary
+      doc.addPage();
+      doc.setFillColor(...NAVY as [number,number,number]); doc.rect(0, 0, W, 22, "F");
+      doc.setFillColor(...GOLD as [number,number,number]); doc.rect(0, 22, W, 1, "F");
+      doc.setTextColor(...GOLD as [number,number,number]); doc.setFontSize(14); doc.setFont("helvetica", "bold");
+      doc.text("Investment Strategy Summary", 15, 15);
+      const stratRows = goals.map((g: any) => {
+        const years = Math.max(1, g.target_year - currentYear);
+        const fv = calcFutureValue(g.target_amount, g.inflation_rate, years);
+        const corpus = totalInvested / Math.max(goals.length, 1);
+        const sip = calcRequiredSIP(fv, corpus, g.expected_return, years);
+        const goalInfo = GOAL_TYPES.find((gt: any) => gt.type === g.goal_type);
+        return [`${(goalInfo as any)?.pdfLabel || ""} ${g.goal_name}`, String(g.target_year), formatINR(fv), `₹${Math.round(sip).toLocaleString("en-IN")}`, "Monthly SIP"];
+      });
+      autoTable(doc, {
+        startY: 32,
+        head: [["Goal", "Target Year", "Corpus Required", "Monthly SIP", "Type"]],
+        body: [...stratRows, ["", "", "TOTAL ADDITIONAL SIP", `₹${Math.round(totalSIP).toLocaleString("en-IN")}/month`, ""]],
+        theme: "grid",
+        headStyles: { fillColor: NAVY as [number,number,number], textColor: GOLD as [number,number,number], fontSize: 8, fontStyle: "bold" },
+        bodyStyles: { fontSize: 8 },
+        alternateRowStyles: { fillColor: [248, 245, 240] },
+        margin: { left: 15, right: 15 },
+      });
+      const lastY = (doc as any).lastAutoTable?.finalY || 150;
+      doc.setFillColor(240, 235, 224); doc.roundedRect(15, lastY + 10, W - 30, 30, 3, 3, "F");
+      doc.setTextColor(...MUTED as [number,number,number]); doc.setFontSize(7); doc.setFont("helvetica", "normal");
+      doc.text("DISCLAIMER", 20, lastY + 17);
+      const disclaimer = "Mutual fund investments are subject to market risks. Past performance is not indicative of future results. The projections shown are based on assumed rates of return and inflation and are for illustrative purposes only.";
+      doc.text(doc.splitTextToSize(disclaimer, W - 40), 20, lastY + 23);
+      doc.setFillColor(...NAVY as [number,number,number]); doc.rect(0, H - 30, W, 30, "F");
+      doc.setTextColor(...GOLD as [number,number,number]); doc.setFontSize(9); doc.setFont("helvetica", "bold");
+      doc.text("Veera Karthik Subburaj", 15, H - 18);
+      doc.setTextColor(156, 163, 175); doc.setFontSize(7); doc.setFont("helvetica", "normal");
+      doc.text("AMFI Registered Mutual Fund Distributor | ARN: 355717", 15, H - 11);
+      doc.text("8148582571 | veerawealthadvisor@gmail.com | investwithveera.vercel.app", 15, H - 6);
+
+      doc.save(`${investor.name}_Goal_Report_${new Date().toLocaleDateString("en-IN").replace(/\//g, "-")}.pdf`);
+    } catch (err) {
+      console.error("PDF error:", err);
+    }
+    setPdfLoading(false);
   };
 
   const filteredInvestors = investors.filter(inv =>
@@ -344,9 +769,21 @@ export default function AdminGoalsPage() {
                   <h1>{selectedInvestor.name}</h1>
                   <p>CAN: {selectedInvestor.can} · {selectedInvestor.email}</p>
                 </div>
-                <button className="add-btn" onClick={() => { setShowForm(true); setEditGoal(null); setForm({ ...emptyForm }); }}>
-                  + Add Goal
-                </button>
+                <div style={{ display: "flex", gap: "0.75rem" }}>
+                  {goals.length > 0 && (
+                    <button
+                      className="add-btn"
+                      style={{ background: "transparent", border: "1px solid #c9a84c", color: "#c9a84c" }}
+                      onClick={downloadPDF}
+                      disabled={pdfLoading}
+                    >
+                      {pdfLoading ? "⏳ Generating..." : "📄 Download PDF"}
+                    </button>
+                  )}
+                  <button className="add-btn" onClick={() => { setShowForm(true); setEditGoal(null); setForm({ ...emptyForm }); }}>
+                    + Add Goal
+                  </button>
+                </div>
               </div>
 
               {/* Summary strip */}

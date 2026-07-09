@@ -148,6 +148,7 @@ export default function GoalsPage() {
       const { default: autoTable } = await import("jspdf-autotable");
 
       const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      (doc as any).setCharSpace(0);
       const W = 210, H = 297;
       const NAVY = [10, 22, 40];
       const GOLD = [201, 168, 76];
@@ -171,15 +172,26 @@ export default function GoalsPage() {
       doc.setFillColor(...GOLD as [number,number,number]);
       doc.rect(0, 58, W, 1.5, "F");
 
-      // VK logo circle
-      doc.setFillColor(...GOLD as [number,number,number]);
-      doc.circle(20, 20, 11, "F");
-      doc.setFillColor(8, 18, 34);
-      doc.circle(20, 20, 8.5, "F");
-      doc.setTextColor(...GOLD as [number,number,number]);
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "bold");
-      doc.text("VK", 20, 23, { align: "center" });
+      // Load logo from public folder
+      try {
+        const logoRes = await fetch("/icons/icon-512x512.png");
+        const logoBlob = await logoRes.blob();
+        const logoDataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(logoBlob);
+        });
+        doc.addImage(logoDataUrl, "PNG", 8, 6, 22, 22);
+      } catch {
+        doc.setFillColor(...GOLD as [number,number,number]);
+        doc.circle(20, 20, 11, "F");
+        doc.setFillColor(8, 18, 34);
+        doc.circle(20, 20, 8.5, "F");
+        doc.setTextColor(...GOLD as [number,number,number]);
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.text("VK", 20, 23, { align: "center" });
+      }
 
       // Advisor name & details
       doc.setTextColor(...GOLD as [number,number,number]);
@@ -623,12 +635,13 @@ export default function GoalsPage() {
         doc.text("Mapped Investments", 15, gy);
         gy += 5;
 
+        const totalFundInvested = funds.reduce((s, f) => s + f.invested, 0) || 1;
         const fundRows = funds.map((f, idx) => [
           String(idx + 1),
           f.scheme.length > 40 ? f.scheme.slice(0, 40) + "…" : f.scheme,
           f.fund,
           formatINR(f.invested),
-          `${(100 / Math.max(funds.length, 1)).toFixed(0)}%`,
+          `${((f.invested / totalFundInvested) * 100).toFixed(1)}%`,
         ]);
 
         autoTable(doc, {
