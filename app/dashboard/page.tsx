@@ -5,38 +5,47 @@ import { getLiveNAV } from "../../lib/navHelper";
 import { useRouter } from "next/navigation";
 import { useSessionGuard } from "../../lib/sessionGuard";
 
-// Classify fund into category
-function classifyFund(schemeName: string): { type: "equity" | "debt", subtype: string } {
-  const n = schemeName.toLowerCase();
-  if (n.includes("ultra short") || n.includes("low duration") || n.includes("money market") ||
-      n.includes("liquid") || n.includes("overnight") || n.includes("short term debt") ||
-      n.includes("corporate bond") || n.includes("gilt") || n.includes("banking and psu") ||
-      n.includes("credit risk") || n.includes("medium duration") || n.includes("long duration")) {
-    return { type: "debt", subtype: "Debt" };
-  }
-  if (n.includes("small cap")) return { type: "equity", subtype: "Small Cap" };
-  if (n.includes("mid cap") || n.includes("midcap")) return { type: "equity", subtype: "Mid Cap" };
-  if (n.includes("large cap") || n.includes("largecap") || n.includes("bluechip") || n.includes("top 100") || n.includes("top100")) return { type: "equity", subtype: "Large Cap" };
-  if (n.includes("flexi cap") || n.includes("flexicap") || n.includes("multi cap") || n.includes("multicap")) return { type: "equity", subtype: "Flexi Cap" };
-  if (n.includes("elss") || n.includes("tax sav")) return { type: "equity", subtype: "ELSS" };
-  if (n.includes("sectoral") || n.includes("digital") || n.includes("technology") || n.includes("pharma") ||
-      n.includes("banking") || n.includes("infra") || n.includes("consumption") || n.includes("india fund")) {
-    return { type: "equity", subtype: "Sectoral" };
-  }
-  if (n.includes("hybrid") || n.includes("balanced") || n.includes("aggressive")) return { type: "equity", subtype: "Hybrid Equity" };
-  // Default to equity for unknown
+// ── HARDWIRED FUND CLASSIFICATION ──────────────────────────────────────────
+// Keyed by lowercase scheme name — must match scheme_name in transactions table
+const FUND_CLASSIFICATION: Record<string, { type: "equity" | "debt"; subtype: string }> = {
+  "axis nifty 100 index fund regular growth":                                        { type: "equity", subtype: "Large Cap" },
+  "axis short duration fund - growth":                                               { type: "debt",   subtype: "Debt" },
+  "axis small cap fund growth":                                                      { type: "equity", subtype: "Small Cap" },
+  "axis treasury advantage fund - growth":                                           { type: "debt",   subtype: "Debt" },
+  "bandhan low duration fund-growth-(regular plan)":                                 { type: "debt",   subtype: "Debt" },
+  "bandhan money market fund--growth-(regular plan)":                                { type: "debt",   subtype: "Debt" },
+  "bandhan small cap fund regular plan-growth":                                      { type: "equity", subtype: "Small Cap" },
+  "edelweiss nifty midcap150 momentum 50 index fund- regular plan growth - growth": { type: "equity", subtype: "Mid Cap" },
+  "hdfc large and mid cap fund- regular plan-growth":                                { type: "equity", subtype: "Large & Mid Cap" },
+  "icici prudential banking and financial services fund - regular plan - growth":    { type: "equity", subtype: "Sectoral" },
+  "icici prudential nifty bank index fund - growth":                                 { type: "equity", subtype: "Sectoral" },
+  "icici prudential ultra short term fund-regular-growth":                           { type: "debt",   subtype: "Debt" },
+  "kotak small cap fund - growth":                                                   { type: "equity", subtype: "Small Cap" },
+  "motilal oswal digital india fund regular growth":                                 { type: "equity", subtype: "Sectoral" },
+  "motilal oswal midcap fund - regular plan growth":                                 { type: "equity", subtype: "Mid Cap" },
+  "nippon india growth mid cap fund - growth plan growth option":                    { type: "equity", subtype: "Mid Cap" },
+  "parag parikh flexi cap fund-regular-growth":                                      { type: "equity", subtype: "Flexi Cap" },
+};
+
+function classifyFund(schemeName: string): { type: "equity" | "debt"; subtype: string } {
+  const key = schemeName.toLowerCase().trim();
+  if (FUND_CLASSIFICATION[key]) return FUND_CLASSIFICATION[key];
+
+  // Fallback for any new fund not yet hardcoded — log so you know to add it
+  console.warn(`[classifyFund] Unknown scheme — defaulting to equity: "${schemeName}"`);
   return { type: "equity", subtype: "Equity" };
 }
 
-const EQUITY_COLORS: any = {
-  "Large Cap": "#1e40af",
-  "Mid Cap": "#7c3aed",
-  "Small Cap": "#dc2626",
-  "Flexi Cap": "#c9a84c",
-  "ELSS": "#16a34a",
-  "Sectoral": "#ea580c",
-  "Hybrid Equity": "#0891b2",
-  "Equity": "#6366f1",
+const EQUITY_COLORS: Record<string, string> = {
+  "Large Cap":       "#1e40af",
+  "Large & Mid Cap": "#3b82f6",
+  "Mid Cap":         "#7c3aed",
+  "Small Cap":       "#dc2626",
+  "Flexi Cap":       "#c9a84c",
+  "ELSS":            "#16a34a",
+  "Sectoral":        "#ea580c",
+  "Hybrid Equity":   "#0891b2",
+  "Equity":          "#6366f1",
 };
 
 function DonutChart({ data, centerLabel, centerValue, size = 160 }: any) {
