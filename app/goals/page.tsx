@@ -17,6 +17,12 @@ function formatINR(val: number) {
   if (val >= 100000) return `₹${(val / 100000).toFixed(2)} L`;
   return `₹${val.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
 }
+// PDF-safe version — "times" font can't render ₹, so use Rs. prefix
+function pdfINR(val: number): string {
+  if (val >= 10000000) return `Rs.${(val / 10000000).toFixed(2)} Cr`;
+  if (val >= 100000) return `Rs.${(val / 100000).toFixed(2)} L`;
+  return `Rs.${Math.round(val).toLocaleString("en-IN")}`;
+}
 
 function calcFutureValue(amount: number, rate: number, years: number) {
   return amount * Math.pow(1 + rate / 100, years);
@@ -581,7 +587,9 @@ export default function GoalsPage() {
       txt(health, W - M - 52 + 12.5, 10.5, { align: "center" });
 
       const priColors: Record<string, [number,number,number]> = { HIGH: RED, MEDIUM: AMBER, LOW: GREEN };
-      doc.setFillColor((priColors[priority] || GOLD)[0], (priColors[priority] || GOLD)[1], (priColors[priority] || GOLD)[2]; doc.roundedRect(W - M - 25, 5, 22, 9, 1, 1, "F");
+      doc.setFillColor((priColors[priority] || GOLD)[0], (priColors[priority] || GOLD)[1], (priColors[priority] || GOLD)[2]
+       );
+       doc.roundedRect(W - M - 25, 5, 22, 9, 1, 1, "F");
       doc.setTextColor(...WHITE); doc.setFontSize(6); sf("bold");
       txt(`${priority} PRIORITY`, W - M - 25 + 11, 10.5, { align: "center" });
 

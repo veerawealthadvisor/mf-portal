@@ -601,7 +601,9 @@ export default function AdminGoalsPage() {
       txt(health, W - M - 52 + 12.5, 10.5, { align: "center" });
 
       const priColors: Record<string, [number,number,number]> = { HIGH: RED, MEDIUM: AMBER, LOW: GREEN };
-      doc.setFillColor((priColors[priority] || GOLD)[0], (priColors[priority] || GOLD)[1], (priColors[priority] || GOLD)[2]; doc.roundedRect(W - M - 25, 5, 22, 9, 1, 1, "F");
+      doc.setFillColor((priColors[priority] || GOLD)[0], (priColors[priority] || GOLD)[1], (priColors[priority] || GOLD)[2]
+       );
+       doc.roundedRect(W - M - 25, 5, 22, 9, 1, 1, "F");
       doc.setTextColor(...WHITE); doc.setFontSize(6); sf("bold");
       txt(`${priority} PRIORITY`, W - M - 25 + 11, 10.5, { align: "center" });
 
