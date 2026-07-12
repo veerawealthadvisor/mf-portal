@@ -214,17 +214,17 @@ export default function AdminGoalsPage() {
       label: string, value: string, labelColor: [number,number,number],
       valueColor: [number,number,number], bgColor: [number,number,number],
       accentColor?: [number,number,number]) => {
-      doc.setFillColor(...bgColor); doc.roundedRect(x, y, w, h, 2, 2, "F");
-      if (accentColor) { doc.setFillColor(...accentColor); doc.rect(x, y, 2, h, "F"); }
-      doc.setTextColor(...labelColor); doc.setFontSize(6); sf("normal");
+      doc.setFillColor(bgColor[0], bgColor[1], bgColor[2]); doc.roundedRect(x, y, w, h, 2, 2, "F");
+      if (accentColor) { doc.setFillColor(accentColor[0], accentColor[1], accentColor[2]); doc.rect(x, y, 2, h, "F"); }
+      doc.setTextColor(labelColor[0], labelColor[1], labelColor[2]); doc.setFontSize(6); sf("normal");
       txt(wrap(label, w - 8), x + 5, y + 6);
-      doc.setTextColor(...valueColor); doc.setFontSize(8.5); sf("bold");
+      doc.setTextColor(valueColor[0], valueColor[1], valueColor[2]); doc.setFontSize(8.5); sf("bold");
       txt(wrap(value, w - 8), x + 5, y + 13);
     };
 
     // Horizontal divider line
     const divider = (y: number, color: [number,number,number] = GOLD, opacity = 0.4) => {
-      doc.setFillColor(...color);
+      doc.setFillColor(color[0], color[1], color[2]);
       doc.setGState(new (doc as any).GState({ opacity }));
       doc.rect(M, y, CW, 0.4, "F");
       doc.setGState(new (doc as any).GState({ opacity: 1 }));
@@ -391,10 +391,10 @@ export default function AdminGoalsPage() {
       const row = Math.floor(i / 3), col = i % 3;
       const sx = M + col * (scW + 2), sy = cy + row * 20;
       doc.setFillColor(...SLATE); doc.roundedRect(sx, sy, scW, 18, 2, 2, "F");
-      doc.setFillColor(...sc.color as [number,number,number]); doc.rect(sx, sy, 2, 18, "F");
+      doc.setFillColor(sc.color[0], sc.color[1], sc.color[2]); doc.rect(sx, sy, 2, 18, "F");
       doc.setTextColor(130, 140, 155); doc.setFontSize(5.5); sf("normal");
       txt(sc.label.toUpperCase(), sx + 5, sy + 6);
-      doc.setTextColor(...sc.color as [number,number,number]); doc.setFontSize(8.5); sf("bold");
+      doc.setTextColor(sc.color[0], sc.color[1], sc.color[2]); doc.setFontSize(8.5); sf("bold");
       txt(wrap(sc.value, scW - 8), sx + 5, sy + 14);
     });
     cy += 44;
@@ -408,7 +408,7 @@ export default function AdminGoalsPage() {
     goalData.slice(0, 6).forEach((d: any) => {
       doc.setFillColor(...SLATE); doc.rect(M, cy, CW, 16, "F");
       // Priority dot
-      doc.setFillColor(...d.priorityColor); doc.circle(M + 4, cy + 8, 2, "F");
+      doc.setFillColor(d.priorityColor[0], d.priorityColor[1], d.priorityColor[2]); doc.circle(M + 4, cy + 8, 2, "F");
       // Goal name + meta
       doc.setTextColor(...WHITE); doc.setFontSize(7.5); sf("bold");
       txt(wrap(`${d.info?.pdfLabel || ""} ${d.g.goal_name}`, 100), M + 10, cy + 6);
@@ -416,15 +416,15 @@ export default function AdminGoalsPage() {
       const meta = `${d.g.target_year}  ·  ${d.years} yrs  ·  Target: ${pdfINR(d.fv)}  ·  SIP: Rs.${Math.round(d.sip).toLocaleString("en-IN")}/mo`;
       txt(wrap(meta, 110), M + 10, cy + 12);
       // Health badge
-      doc.setFillColor(...d.healthColor); doc.roundedRect(W - M - 32, cy + 4, 30, 8, 1, 1, "F");
+      doc.setFillColor(d.healthColor[0], d.healthColor[1], d.healthColor[2]); doc.roundedRect(W - M - 32, cy + 4, 30, 8, 1, 1, "F");
       doc.setTextColor(...WHITE); doc.setFontSize(5.5); sf("bold");
       txt(d.health, W - M - 17, cy + 9, { align: "center" });
       // Progress bar
       const bx = W - M - 68, bw = 32;
       doc.setFillColor(30, 45, 75); doc.roundedRect(bx, cy + 5, bw, 4, 1, 1, "F");
-      doc.setFillColor(...d.healthColor);
+      doc.setFillColor(d.healthColor[0], d.healthColor[1], d.healthColor[2]);
       doc.roundedRect(bx, cy + 5, Math.max(2, bw * d.pct / 100), 4, 1, 1, "F");
-      doc.setTextColor(...d.healthColor); doc.setFontSize(5.5); sf("bold");
+      doc.setTextColor(d.healthColor[0], d.healthColor[1], d.healthColor[2]); doc.setFontSize(5.5); sf("bold");
       const pctLabel = d.pct < 1 ? "Just Started" : `${d.pct.toFixed(0)}%`;
       txt(pctLabel, bx - 2, cy + 8, { align: "right" });
       cy += 18;
@@ -501,10 +501,10 @@ export default function AdminGoalsPage() {
     sumCards.forEach((card, i) => {
       const cx = M + i * (sumW + 2);
       doc.setFillColor(...NAVY); doc.roundedRect(cx, y, sumW, 20, 2, 2, "F");
-      doc.setFillColor(...card.accent as [number,number,number]); doc.rect(cx, y, 2, 20, "F");
+      doc.setFillColor(card.accent[0], card.accent[1], card.accent[2]); doc.rect(cx, y, 2, 20, "F");
       doc.setTextColor(...MUTED); doc.setFontSize(6); sf("normal");
       txt(wrap(card.label, sumW - 8), cx + 5, y + 7);
-      doc.setTextColor(...card.color as [number,number,number]); doc.setFontSize(9); sf("bold");
+      doc.setTextColor(card.color[0], card.color[1], card.color[2]); doc.setFontSize(9); sf("bold");
       txt(wrap(card.value, sumW - 8), cx + 5, y + 16);
     });
     y += 27;
@@ -596,12 +596,12 @@ export default function AdminGoalsPage() {
       pageHeader(`${info?.pdfLabel || ""} ${g.goal_name}`, investor.name);
 
       // Health + Priority badges
-      doc.setFillColor(...healthColor); doc.roundedRect(W - M - 52, 5, 25, 9, 1, 1, "F");
+      doc.setFillColor(healthColor[0], healthColor[1], healthColor[2]); doc.roundedRect(W - M - 52, 5, 25, 9, 1, 1, "F");
       doc.setTextColor(...WHITE); doc.setFontSize(6); sf("bold");
       txt(health, W - M - 52 + 12.5, 10.5, { align: "center" });
 
       const priColors: Record<string, [number,number,number]> = { HIGH: RED, MEDIUM: AMBER, LOW: GREEN };
-      doc.setFillColor(...(priColors[priority] || GOLD)); doc.roundedRect(W - M - 25, 5, 22, 9, 1, 1, "F");
+      doc.setFillColor((priColors[priority] || GOLD)[0], (priColors[priority] || GOLD)[1], (priColors[priority] || GOLD)[2]; doc.roundedRect(W - M - 25, 5, 22, 9, 1, 1, "F");
       doc.setTextColor(...WHITE); doc.setFontSize(6); sf("bold");
       txt(`${priority} PRIORITY`, W - M - 25 + 11, 10.5, { align: "center" });
 
@@ -622,10 +622,10 @@ export default function AdminGoalsPage() {
         const row = Math.floor(i / 3), col = i % 3;
         const cx = M + col * (gcW + 2), cy2 = gy + row * 22;
         doc.setFillColor(...NAVY); doc.roundedRect(cx, cy2, gcW, 20, 2, 2, "F");
-        doc.setFillColor(...card.c as [number,number,number]); doc.rect(cx, cy2, 2, 20, "F");
+        doc.setFillColor(card.c[0], card.c[1], card.c[2]); doc.rect(cx, cy2, 2, 20, "F");
         doc.setTextColor(...MUTED); doc.setFontSize(6); sf("normal");
         txt(wrap(card.label, gcW - 8), cx + 5, cy2 + 6.5);
-        doc.setTextColor(...card.c as [number,number,number]); doc.setFontSize(8.5); sf("bold");
+        doc.setTextColor(card.c[0], card.c[1], card.c[2]); doc.setFontSize(8.5); sf("bold");
         txt(wrap(card.value, gcW - 8), cx + 5, cy2 + 14.5);
       });
       gy += 48;
@@ -660,9 +660,9 @@ export default function AdminGoalsPage() {
       gy = sectionHead("Goal Funding Status", gy, "");
       const barW = CW - 40;
       doc.setFillColor(229, 231, 235); doc.roundedRect(M, gy, barW, 9, 2, 2, "F");
-      doc.setFillColor(...healthColor);
+      doc.setFillColor(healthColor[0], healthColor[1], healthColor[2]);
       doc.roundedRect(M, gy, Math.max(3, barW * pct / 100), 9, 2, 2, "F");
-      doc.setTextColor(...healthColor); doc.setFontSize(9); sf("bold");
+      doc.setTextColor(healthColor[0], healthColor[1], healthColor[2]); doc.setFontSize(9); sf("bold");
       const fundedLabel = pct < 1 ? "Just Started" : `${pct.toFixed(1)}% Funded`;
       txt(fundedLabel, M + barW + 3, gy + 7);
       gy += 14;
@@ -749,7 +749,7 @@ export default function AdminGoalsPage() {
         const boxH = 10 + (introLines.length + sipLines.length + rec2Lines.length) * 5 + 4;
 
         doc.setFillColor(...LIGHT); doc.roundedRect(M, finalY, CW, boxH, 2, 2, "F");
-        doc.setFillColor(...healthColor); doc.rect(M, finalY, 3, boxH, "F");
+        doc.setFillColor(healthColor[0], healthColor[1], healthColor[2]); doc.rect(M, finalY, 3, boxH, "F");
 
         let ry = finalY + 8;
         doc.setTextColor(...NAVY); doc.setFontSize(7.5); sf("bold");
@@ -896,13 +896,13 @@ export default function AdminGoalsPage() {
     const needsWork = goalData.filter((d: any) => d.pct < 40).length;
 
     doc.setFillColor(...SLATE); doc.roundedRect(M, ly, CW, 38, 2, 2, "F");
-    doc.setFillColor(...scoreColor); doc.rect(M, ly, 3, 38, "F");
+    doc.setFillColor(scoreColor[0], scoreColor[1], scoreColor[2]); doc.rect(M, ly, 3, 38, "F");
 
     // Score circle
     const scX = M + 25, scY = ly + 19;
     doc.setFillColor(...NAVY); doc.circle(scX, scY, 16, "F");
-    doc.setFillColor(...scoreColor); doc.circle(scX, scY, 14, "S");
-    doc.setTextColor(...scoreColor); doc.setFontSize(16); sf("bold");
+    doc.setFillColor(scoreColor[0], scoreColor[1], scoreColor[2]); doc.circle(scX, scY, 14, "S");
+    doc.setTextColor(scoreColor[0], scoreColor[1], scoreColor[2]); doc.setFontSize(16); sf("bold");
     txt(String(score), scX, scY + 4, { align: "center" });
     doc.setFontSize(5.5); sf("normal"); txt("out of 100", scX, scY + 9, { align: "center" });
 
