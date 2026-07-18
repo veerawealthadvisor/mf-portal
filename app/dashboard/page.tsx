@@ -27,13 +27,32 @@ const FUND_CLASSIFICATION: Record<string, { type: "equity" | "debt"; subtype: st
   "parag parikh flexi cap fund-regular-growth":                                      { type: "equity", subtype: "Flexi Cap" },
 };
 
-function classifyFund(schemeName: string): { type: "equity" | "debt"; subtype: string } {
-  const key = schemeName.toLowerCase().trim();
-  if (FUND_CLASSIFICATION[key]) return FUND_CLASSIFICATION[key];
+function normalizeSchemeName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .trim();
+}
 
-  // Fallback for any new fund not yet hardcoded — log so you know to add it
-  console.warn(`[classifyFund] Unknown scheme — defaulting to equity: "${schemeName}"`);
-  return { type: "equity", subtype: "Equity" };
+function classifyFund(
+  schemeName: string
+): { type: "equity" | "debt"; subtype: string } {
+  const normalizedKey = normalizeSchemeName(schemeName);
+
+  for (const [key, value] of Object.entries(FUND_CLASSIFICATION)) {
+    if (normalizeSchemeName(key) === normalizedKey) {
+      return value;
+    }
+  }
+
+  console.warn(
+    `[classifyFund] Unknown scheme — defaulting to equity: "${schemeName}"`
+  );
+
+  return {
+    type: "equity",
+    subtype: "Equity",
+  };
 }
 
 const EQUITY_COLORS: Record<string, string> = {
