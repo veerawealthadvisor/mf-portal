@@ -80,7 +80,7 @@ export default function AdminUpload() {
     });
     const newFunds: string[] = [];
     allSchemes.forEach((scheme) => {
-      if (!HARDCODED_SCHEMES.has(scheme.toLowerCase().trim())) {
+      if (!HARDCODED_SCHEMES.has(scheme.toLowerCase().trim().replace(/\s+/g, " ").replace(/–/g, "-"))) {
         newFunds.push(scheme);
       }
     });
