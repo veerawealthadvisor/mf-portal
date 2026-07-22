@@ -25,8 +25,14 @@ const FUND_CLASSIFICATION: Record<string, { type: "equity" | "debt"; subtype: st
   "motilal oswal midcap fund - regular plan growth":                                 { type: "equity", subtype: "Mid Cap" },
   "nippon india growth mid cap fund - growth plan growth option":                    { type: "equity", subtype: "Mid Cap" },
   "parag parikh flexi cap fund-regular-growth":                                      { type: "equity", subtype: "Flexi Cap" },
+  // ── New funds added July 2026 ──
+  "invesco india ultra short duration fund - regular plan - growth":                 { type: "debt",   subtype: "Debt" },
+  "kotak midcap fund -growth":                                                       { type: "equity", subtype: "Mid Cap" },
+  "motilal oswal ultra short term fund regular growth":                              { type: "debt",   subtype: "Debt" },
+  "nippon india banking & financial services fund growth plan growth option":        { type: "equity", subtype: "Sectoral" },
+  "nippon india ultra short duration fund - growth option":                          { type: "debt",   subtype: "Debt" },
+  "parag parikh arbitrage fund - regular plan growth":                               { type: "debt", subtype: "Debt" },
 };
-
 function normalizeSchemeName(name: string): string {
   return name
     .toLowerCase()

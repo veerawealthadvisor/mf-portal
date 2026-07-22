@@ -37,6 +37,12 @@ const SCHEME_CODE_OVERRIDES: Record<string, number> = {
   "motilal oswal midcap fund - regular plan growth":                                   127039,
   "nippon india growth mid cap fund - growth plan growth option":                      100377,
   "parag parikh flexi cap fund-regular-growth":                                        122640,
+  "invesco india ultra short duration fund - regular plan - growth": 114359,
+"kotak midcap fund -growth":                                        104908,
+"motilal oswal ultra short term fund regular growth":               124233,
+"nippon india banking & financial services fund growth plan growth option": 101862,
+"nippon india ultra short duration fund - growth option":           143493,
+"parag parikh arbitrage fund - regular plan growth":                152110,
 };
 
 // Words that don't help identify a fund — strip before comparing

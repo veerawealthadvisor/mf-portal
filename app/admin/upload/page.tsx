@@ -22,6 +22,13 @@ const HARDCODED_SCHEMES = new Set([
   "motilal oswal midcap fund - regular plan growth",
   "nippon india growth mid cap fund - growth plan growth option",
   "parag parikh flexi cap fund-regular-growth",
+  // ── New funds added July 2026 ──
+  "invesco india ultra short duration fund - regular plan - growth",
+  "kotak midcap fund -growth",
+  "motilal oswal ultra short term fund regular growth",
+  "nippon india banking & financial services fund growth plan growth option",
+  "nippon india ultra short duration fund - growth option",
+  "parag parikh arbitrage fund - regular plan growth",
 ]);
 
 export default function AdminUpload() {
