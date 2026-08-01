@@ -32,6 +32,13 @@ const FUND_CLASSIFICATION: Record<string, { type: "equity" | "debt"; subtype: st
   "nippon india banking & financial services fund growth plan growth option":        { type: "equity", subtype: "Sectoral" },
   "nippon india ultra short duration fund - growth option":                          { type: "debt",   subtype: "Debt" },
   "parag parikh arbitrage fund - regular plan growth":                               { type: "debt", subtype: "Debt" },
+  "invesco india low duration fund growth":                          { type: "debt",   subtype: "Debt" },
+"invesco india midcap fund - regular plan - growth":              { type: "equity", subtype: "Mid Cap" },
+"invesco india smallcap fund - regular plan - growth":            { type: "equity", subtype: "Small Cap" },
+"tata digital india fund-regular plan-growth":                    { type: "equity", subtype: "Sectoral" },
+"tata ethical fund-regular plan - growth option":                 { type: "equity", subtype: "Equity" },
+"tata short term bond fund -regular plan- growth option":         { type: "debt",   subtype: "Debt" },
+"tata ultra short term fund-regular plan-growth":                 { type: "debt",   subtype: "Debt" },
 };
 function normalizeSchemeName(name: string): string {
   return name

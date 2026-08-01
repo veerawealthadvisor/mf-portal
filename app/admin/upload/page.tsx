@@ -29,6 +29,14 @@ const HARDCODED_SCHEMES = new Set([
   "nippon india banking & financial services fund growth plan growth option",
   "nippon india ultra short duration fund - growth option",
   "parag parikh arbitrage fund - regular plan growth",
+  // ── New funds added August 2026 ──
+  "invesco india low duration fund growth",
+"invesco india midcap fund - regular plan - growth",
+"invesco india smallcap fund - regular plan - growth",
+"tata digital india fund-regular plan-growth",
+"tata ethical fund-regular plan - growth option",
+"tata short term bond fund -regular plan- growth option",
+"tata ultra short term fund-regular plan-growth",
 ]);
 
 export default function AdminUpload() {
