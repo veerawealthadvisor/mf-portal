@@ -43,7 +43,7 @@ const SCHEME_CODE_OVERRIDES: Record<string, number> = {
 "nippon india banking & financial services fund growth plan growth option": 101862,
 "nippon india ultra short duration fund - growth option":           143493,
 "parag parikh arbitrage fund - regular plan growth":                152110,
-"invesco india low duration fund growth":                          104728,
+"invesco india low duration fund growth":                          104726,
 "invesco india midcap fund - regular plan - growth":              105503,
 "invesco india small cap fund regular growth":             145139,
 "tata digital india fund regular plan growth":             135797,
