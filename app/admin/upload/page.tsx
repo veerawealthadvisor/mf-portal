@@ -33,10 +33,11 @@ const HARDCODED_SCHEMES = new Set([
   "invesco india low duration fund growth",
 "invesco india midcap fund - regular plan - growth",
 "invesco india smallcap fund - regular plan - growth",
-"tata digital india fund-regular plan-growth",
-"tata ethical fund-regular plan - growth option",
-"tata short term bond fund -regular plan- growth option",
-"tata ultra short term fund-regular plan-growth",
+"invesco india small cap fund regular growth",
+"tata digital india fund regular plan growth",
+"tata ethical fund regular plan - growth",
+"tata short term bond fund regular plan - growth",
+"tata ultra short term fund - regular plan - growth",
 ]);
 
 export default function AdminUpload() {
@@ -80,20 +81,23 @@ export default function AdminUpload() {
   };
 
   // ── Detect new funds not in the hardcoded map ──
-  const detectNewFunds = (rows1: any[], rows2: any[]): string[] => {
-    const allSchemes = new Set<string>();
-    [...rows1, ...rows2].forEach((row) => {
-      const scheme = String(row["RTA Scheme Name"] || "").trim();
-      if (scheme) allSchemes.add(scheme);
-    });
-    const newFunds: string[] = [];
-    allSchemes.forEach((scheme) => {
-      if (!HARDCODED_SCHEMES.has(scheme.toLowerCase().trim().replace(/\s+/g, " ").replace(/–/g, "-"))) {
-        newFunds.push(scheme);
-      }
-    });
-    return newFunds.sort();
-  };
+ const normalize = (s: string) =>
+  s.toLowerCase().trim().replace(/\s+/g, " ").replace(/–/g, "-").replace(/[^\x20-\x7E]/g, "");
+
+const detectNewFunds = (rows1: any[], rows2: any[]): string[] => {
+  const allSchemes = new Set<string>();
+  [...rows1, ...rows2].forEach((row) => {
+    const scheme = String(row["RTA Scheme Name"] || "").trim();
+    if (scheme) allSchemes.add(scheme);
+  });
+  const newFunds: string[] = [];
+  allSchemes.forEach((scheme) => {
+    if (!HARDCODED_SCHEMES.has(normalize(scheme))) {
+      newFunds.push(scheme);
+    }
+  });
+  return newFunds.sort();
+};
 
   const processSheet1 = async (rows: any[]) => {
     let inserted = 0, duplicates = 0, skipped = 0, rejected = 0;
