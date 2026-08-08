@@ -31,13 +31,13 @@ const HARDCODED_SCHEMES = new Set([
   "parag parikh arbitrage fund - regular plan growth",
   // ── New funds added August 2026 ──
   "invesco india low duration fund growth",
-"invesco india midcap fund - regular plan - growth",
-"invesco india smallcap fund - regular plan - growth",
-"invesco india small cap fund regular growth",
-"tata digital india fund regular plan growth",
-"tata ethical fund regular plan - growth",
-"tata short term bond fund regular plan - growth",
-"tata ultra short term fund - regular plan - growth",
+  "invesco india midcap fund - regular plan - growth",
+  "invesco india smallcap fund - regular plan - growth",
+  "invesco india small cap fund regular growth",
+  "tata digital india fund regular plan growth",
+  "tata ethical fund regular plan - growth",
+  "tata short term bond fund regular plan - growth",
+  "tata ultra short term fund - regular plan - growth",
 ]);
 
 export default function AdminUpload() {
@@ -61,15 +61,15 @@ export default function AdminUpload() {
     if (val instanceof Date) return val.toISOString().split("T")[0];
     const s = String(val).trim();
     const mmddyyyy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (mmddyyyy) return `${mmddyyyy[3]}-${mmddyyyy[1].padStart(2,"0")}-${mmddyyyy[2].padStart(2,"0")}`;
+    if (mmddyyyy) return `${mmddyyyy[3]}-${mmddyyyy[1].padStart(2, "0")}-${mmddyyyy[2].padStart(2, "0")}`;
     const ddmmyyyy = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-    if (ddmmyyyy) return `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2,"0")}-${ddmmyyyy[1].padStart(2,"0")}`;
+    if (ddmmyyyy) return `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2, "0")}-${ddmmyyyy[1].padStart(2, "0")}`;
     const ddmonyyyy = s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
     if (ddmonyyyy) {
-      const months: any = {Jan:"01",Feb:"02",Mar:"03",Apr:"04",May:"05",Jun:"06",Jul:"07",Aug:"08",Sep:"09",Oct:"10",Nov:"11",Dec:"12"};
-      return `${ddmonyyyy[3]}-${months[ddmonyyyy[2]]||"01"}-${ddmonyyyy[1].padStart(2,"0")}`;
+      const months: any = { Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06", Jul: "07", Aug: "08", Sep: "09", Oct: "10", Nov: "11", Dec: "12" };
+      return `${ddmonyyyy[3]}-${months[ddmonyyyy[2]] || "01"}-${ddmonyyyy[1].padStart(2, "0")}`;
     }
-    if (s.match(/^\d{4}-\d{2}-\d{2}/)) return s.slice(0,10);
+    if (s.match(/^\d{4}-\d{2}-\d{2}/)) return s.slice(0, 10);
     return null;
   };
 
@@ -77,111 +77,147 @@ export default function AdminUpload() {
     if (!dateStr) return "";
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return "";
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   };
 
-  // ── Detect new funds not in the hardcoded map ──
- const normalize = (s: string) =>
-  s.toLowerCase().trim().replace(/\s+/g, " ").replace(/–/g, "-").replace(/[^\x20-\x7E]/g, "");
+  const normalize = (s: string) =>
+    s.toLowerCase().trim().replace(/\s+/g, " ").replace(/–/g, "-").replace(/[^\x20-\x7E]/g, "");
 
-const detectNewFunds = (rows1: any[], rows2: any[]): string[] => {
-  const allSchemes = new Set<string>();
-  [...rows1, ...rows2].forEach((row) => {
-    const scheme = String(row["RTA Scheme Name"] || "").trim();
-    if (scheme) allSchemes.add(scheme);
-  });
-  const newFunds: string[] = [];
-  allSchemes.forEach((scheme) => {
-    if (!HARDCODED_SCHEMES.has(normalize(scheme))) {
-      newFunds.push(scheme);
-    }
-  });
-  return newFunds.sort();
-};
+  const detectNewFunds = (rows1: any[], rows2: any[]): string[] => {
+    const allSchemes = new Set<string>();
+    [...rows1, ...rows2].forEach((row) => {
+      const scheme = String(row["RTA Scheme Name"] || "").trim();
+      if (scheme) allSchemes.add(scheme);
+    });
+    const newFunds: string[] = [];
+    allSchemes.forEach((scheme) => {
+      if (!HARDCODED_SCHEMES.has(normalize(scheme))) newFunds.push(scheme);
+    });
+    return newFunds.sort();
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // KEY FIX: looks up investor by primary CAN *or* secondary_can.
+  // This means the minor child's CAN (stored as secondary_can on the parent
+  // row) is recognised as a valid investor — transactions insert normally
+  // with the child's own CAN, and the dashboard queries them by that CAN.
+  // ─────────────────────────────────────────────────────────────────────────
+  const findInvestorByCAN = async (can: string): Promise<boolean> => {
+    const { data } = await supabase
+      .from("investors")
+      .select("can")
+      .or(`can.eq.${can},secondary_can.eq.${can}`)
+      .maybeSingle();
+    return !!data;
+  };
 
   const processSheet1 = async (rows: any[]) => {
     let inserted = 0, duplicates = 0, skipped = 0, rejected = 0;
     const investorsNotFound: string[] = [];
+
     for (const row of rows) {
-      const utrn = String(row["UTRN"]||"").trim();
-      const can = String(row["CAN"]||"").trim();
-      const name = String(row["Primary Holder Name"]||"").trim();
-      const fund = String(row["Fund Name"]||"").trim();
-      const scheme = String(row["RTA Scheme Name"]||"").trim();
-      const folio = String(row["Folio Number"]||"").trim();
-      const txnType = String(row["Transaction Type"]||"").trim().toLowerCase();
-      const status = String(row["Transaction Status"]||"").trim().toLowerCase();
-      const responseAmount = parseFloat(row["Response Amount"])||0;
-      const responseUnits = parseFloat(row["Response Units"])||0;
-      const nav = parseFloat(row["Price"])||0;
-      const valueDate = parseDate(row["Value Date"]);
-      if (!can||!utrn||!name) continue;
+      const utrn          = String(row["UTRN"] || "").trim();
+      const can           = String(row["CAN"] || "").trim();
+      const name          = String(row["Primary Holder Name"] || "").trim();
+      const fund          = String(row["Fund Name"] || "").trim();
+      const scheme        = String(row["RTA Scheme Name"] || "").trim();
+      const folio         = String(row["Folio Number"] || "").trim();
+      const txnType       = String(row["Transaction Type"] || "").trim().toLowerCase();
+      const status        = String(row["Transaction Status"] || "").trim().toLowerCase();
+      const responseAmount = parseFloat(row["Response Amount"]) || 0;
+      const responseUnits  = parseFloat(row["Response Units"])  || 0;
+      const nav            = parseFloat(row["Price"]) || 0;
+      const valueDate      = parseDate(row["Value Date"]);
+
+      if (!can || !utrn || !name) continue;
       if (!status.includes("rta processed")) { rejected++; continue; }
-      if (responseUnits===0) { skipped++; continue; }
-      const isSIP = txnType.includes("sip") && !txnType.includes("cancel");
+      if (responseUnits === 0) { skipped++; continue; }
+
+      const isSIP        = txnType.includes("sip") && !txnType.includes("cancel");
       const isRedemption = txnType.includes("redeem");
-      const finalUnits = isRedemption ? -Math.abs(responseUnits) : responseUnits;
-      const finalAmount = isRedemption ? -Math.abs(responseAmount) : responseAmount;
-      const monthYear = getMonthYear(valueDate);
-      const { data: existingInv } = await supabase.from("investors").select("can").eq("can",can).single();
-      if (!existingInv) {
-        if (!investorsNotFound.find(i=>i.includes(can))) investorsNotFound.push(`${name} (CAN: ${can})`);
-        skipped++; continue;
+      const finalUnits   = isRedemption ? -Math.abs(responseUnits)  : responseUnits;
+      const finalAmount  = isRedemption ? -Math.abs(responseAmount) : responseAmount;
+      const monthYear    = getMonthYear(valueDate);
+
+      // ── Check primary CAN or secondary_can ──
+      const investorExists = await findInvestorByCAN(can);
+      if (!investorExists) {
+        if (!investorsNotFound.find(i => i.includes(can)))
+          investorsNotFound.push(`${name} (CAN: ${can})`);
+        skipped++;
+        continue;
       }
-      const { data: existing } = await supabase.from("transactions").select("id").eq("itrn",utrn).maybeSingle();
+
+      const { data: existing } = await supabase
+        .from("transactions").select("id").eq("itrn", utrn).maybeSingle();
       if (existing) { duplicates++; continue; }
+
       const { error: insertError } = await supabase.from("transactions").insert({
-        itrn:utrn, can, fund_name:fund, scheme_name:scheme,
-        folio_no:folio, amount:finalAmount, units:finalUnits,
-        nav, nav_date:valueDate, transaction_date:valueDate,
-        month_year:monthYear,
-        txn_type: isSIP?"sip":isRedemption?"redemption":"purchase",
-        instalment_no: isSIP?1:null,
+        itrn: utrn, can, fund_name: fund, scheme_name: scheme,
+        folio_no: folio, amount: finalAmount, units: finalUnits,
+        nav, nav_date: valueDate, transaction_date: valueDate,
+        month_year: monthYear,
+        txn_type: isSIP ? "sip" : isRedemption ? "redemption" : "purchase",
+        instalment_no: isSIP ? 1 : null,
       });
-      if (insertError) { console.error("S1 insert error:",insertError.message); skipped++; }
+
+      if (insertError) { console.error("S1 insert error:", insertError.message); skipped++; }
       else inserted++;
     }
+
     return { inserted, duplicates, skipped, rejected, investorsNotFound };
   };
 
   const processSheet2 = async (rows: any[]) => {
     let inserted = 0, duplicates = 0, skipped = 0, rejected = 0;
     const investorsNotFound: string[] = [];
+
     for (const row of rows) {
-      const utrn = String(row["UTRN"]||"").trim();
-      const can = String(row["CAN"]||"").trim();
-      const name = String(row["Primary Holder Name"]||"").trim();
-      const fund = String(row["Fund Name"]||"").trim();
-      const scheme = String(row["RTA Scheme Name"]||"").trim();
-      const folio = String(row["Folio Number"]||"").trim();
-      const status = String(row["Transaction Status"]||"").trim().toLowerCase();
-      const responseAmount = parseFloat(row["Response Amount"])||0;
-      const responseUnits = parseFloat(row["Response Units"])||0;
-      const nav = parseFloat(row["Price"])||0;
-      const valueDate = parseDate(row["Value Date"]);
-      const instalmentNo = parseInt(row["Instalment \nNo"]||row["Instalment No"]||"0")||null;
-      const amount = parseFloat(row["Amount"])||0;
-      if (!can||!utrn||!name) continue;
+      const utrn           = String(row["UTRN"] || "").trim();
+      const can            = String(row["CAN"] || "").trim();
+      const name           = String(row["Primary Holder Name"] || "").trim();
+      const fund           = String(row["Fund Name"] || "").trim();
+      const scheme         = String(row["RTA Scheme Name"] || "").trim();
+      const folio          = String(row["Folio Number"] || "").trim();
+      const status         = String(row["Transaction Status"] || "").trim().toLowerCase();
+      const responseAmount = parseFloat(row["Response Amount"]) || 0;
+      const responseUnits  = parseFloat(row["Response Units"])  || 0;
+      const nav            = parseFloat(row["Price"]) || 0;
+      const valueDate      = parseDate(row["Value Date"]);
+      const instalmentNo   = parseInt(row["Instalment \nNo"] || row["Instalment No"] || "0") || null;
+      const amount         = parseFloat(row["Amount"]) || 0;
+
+      if (!can || !utrn || !name) continue;
       if (!status.includes("rta processed")) { rejected++; continue; }
-      if (responseUnits===0) { skipped++; continue; }
+      if (responseUnits === 0) { skipped++; continue; }
+
       const monthYear = getMonthYear(valueDate);
-      const { data: existingInv } = await supabase.from("investors").select("can").eq("can",can).single();
-      if (!existingInv) {
-        if (!investorsNotFound.find(i=>i.includes(can))) investorsNotFound.push(`${name} (CAN: ${can})`);
-        skipped++; continue;
+
+      // ── Check primary CAN or secondary_can ──
+      const investorExists = await findInvestorByCAN(can);
+      if (!investorExists) {
+        if (!investorsNotFound.find(i => i.includes(can)))
+          investorsNotFound.push(`${name} (CAN: ${can})`);
+        skipped++;
+        continue;
       }
-      const { data: existing } = await supabase.from("transactions").select("id").eq("itrn",utrn).maybeSingle();
+
+      const { data: existing } = await supabase
+        .from("transactions").select("id").eq("itrn", utrn).maybeSingle();
       if (existing) { duplicates++; continue; }
+
       const { error: insertError } = await supabase.from("transactions").insert({
-        itrn:utrn, can, fund_name:fund, scheme_name:scheme,
-        folio_no:folio, amount:responseAmount||amount,
-        units:responseUnits, nav, nav_date:valueDate,
-        transaction_date:valueDate, month_year:monthYear,
-        txn_type:"sip", instalment_no:instalmentNo,
+        itrn: utrn, can, fund_name: fund, scheme_name: scheme,
+        folio_no: folio, amount: responseAmount || amount,
+        units: responseUnits, nav, nav_date: valueDate,
+        transaction_date: valueDate, month_year: monthYear,
+        txn_type: "sip", instalment_no: instalmentNo,
       });
-      if (insertError) { console.error("S2 insert error:",insertError.message); skipped++; }
+
+      if (insertError) { console.error("S2 insert error:", insertError.message); skipped++; }
       else inserted++;
     }
+
     return { inserted, duplicates, skipped, rejected, investorsNotFound };
   };
 
@@ -193,28 +229,29 @@ const detectNewFunds = (rows1: any[], rows2: any[]): string[] => {
     setProgress("");
     try {
       const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type:"array", cellDates:true });
+      const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
       const sheetNames = workbook.SheetNames;
-      let s1Result = { inserted:0, duplicates:0, skipped:0, rejected:0, investorsNotFound:[] as string[] };
-      let s2Result = { inserted:0, duplicates:0, skipped:0, rejected:0, investorsNotFound:[] as string[] };
+
+      let s1Result = { inserted: 0, duplicates: 0, skipped: 0, rejected: 0, investorsNotFound: [] as string[] };
+      let s2Result = { inserted: 0, duplicates: 0, skipped: 0, rejected: 0, investorsNotFound: [] as string[] };
       let rows1: any[] = [], rows2: any[] = [];
 
       const txnSheet = workbook.Sheets[sheetNames[0]];
       if (txnSheet) {
         setProgress("Processing Sheet 1 — Transactions...");
-        rows1 = XLSX.utils.sheet_to_json(txnSheet, { range:2, defval:"" });
+        rows1 = XLSX.utils.sheet_to_json(txnSheet, { range: 2, defval: "" });
         s1Result = await processSheet1(rows1);
       }
+
       if (sheetNames.length > 1) {
         const sipSheet = workbook.Sheets[sheetNames[1]];
         if (sipSheet) {
           setProgress("Processing Sheet 2 — SIP Instalments...");
-          rows2 = XLSX.utils.sheet_to_json(sipSheet, { range:2, defval:"" });
+          rows2 = XLSX.utils.sheet_to_json(sipSheet, { range: 2, defval: "" });
           s2Result = await processSheet2(rows2);
         }
       }
 
-      // ── Detect new funds not in hardcoded map ──
       const newFunds = detectNewFunds(rows1, rows2);
       const allInvestorsNotFound = [...new Set([...s1Result.investorsNotFound, ...s2Result.investorsNotFound])];
 
@@ -222,14 +259,14 @@ const detectNewFunds = (rows1: any[], rows2: any[]): string[] => {
         sheet1: s1Result,
         sheet2: s2Result,
         total: {
-          inserted: s1Result.inserted + s2Result.inserted,
+          inserted:   s1Result.inserted   + s2Result.inserted,
           duplicates: s1Result.duplicates + s2Result.duplicates,
-          rejected: s1Result.rejected + s2Result.rejected,
-          skipped: s1Result.skipped + s2Result.skipped,
+          rejected:   s1Result.rejected   + s2Result.rejected,
+          skipped:    s1Result.skipped    + s2Result.skipped,
         },
         investorsNotFound: allInvestorsNotFound,
         sheetsFound: sheetNames.length,
-        newFunds, // ← new funds needing hardcoding
+        newFunds,
       });
     } catch (err: any) {
       setError("Something went wrong: " + err.message);
@@ -239,6 +276,7 @@ const detectNewFunds = (rows1: any[], rows2: any[]): string[] => {
     setUploading(false);
   };
 
+  // ── AUTH SCREEN ────────────────────────────────────────────────────────────
   if (!authenticated) {
     return (
       <>
@@ -264,7 +302,7 @@ const detectNewFunds = (rows1: any[], rows2: any[]): string[] => {
           <label>Password</label>
           <input type="password" placeholder="Enter admin password" value={password}
             onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => e.key==="Enter" && handleAuth()} />
+            onKeyDown={(e) => e.key === "Enter" && handleAuth()} />
           {error && <p className="err">{error}</p>}
           <button onClick={handleAuth}>Enter →</button>
           <div className="back"><a href="/">← Back to site</a></div>
@@ -273,6 +311,7 @@ const detectNewFunds = (rows1: any[], rows2: any[]): string[] => {
     );
   }
 
+  // ── UPLOAD SCREEN ──────────────────────────────────────────────────────────
   return (
     <>
       <style>{`
@@ -347,22 +386,28 @@ const detectNewFunds = (rows1: any[], rows2: any[]): string[] => {
             ✅ <strong>Sheet 1</strong> (Transaction Report) — purchases and redemptions<br />
             ✅ <strong>Sheet 2</strong> (Systematic Instalment Report) — all SIP instalments<br />
             ✅ Only <strong>RTA Processed</strong> transactions imported — failed/rejected automatically skipped<br />
-            ✅ UTRN-based duplicate protection — safe to re-upload same file
+            ✅ UTRN-based duplicate protection — safe to re-upload same file<br />
+            ✅ <strong>Minor child accounts</strong> are recognised automatically via secondary CAN
           </div>
 
-          <div className={`drop-zone ${file ? "has-file" : ""}`}
-            onClick={() => document.getElementById("fileInput")?.click()}>
+          <div
+            className={`drop-zone ${file ? "has-file" : ""}`}
+            onClick={() => document.getElementById("fileInput")?.click()}
+          >
             <div className="drop-icon">{file ? "✅" : "📊"}</div>
             <div className="drop-title">{file ? file.name : "Click to select your XLSX report"}</div>
             <div className="drop-sub">
-              {file ? `${(file.size/1024).toFixed(1)} KB · Ready to upload`
+              {file
+                ? `${(file.size / 1024).toFixed(1)} KB · Ready to upload`
                 : "TransactEezz monthly report (.xlsx) — both sheets will be processed"}
             </div>
           </div>
-          <input id="fileInput" type="file" accept=".xlsx,.xls" className="file-input"
-            onChange={(e) => { setFile(e.target.files?.[0]||null); setResults(null); setError(""); }} />
+          <input
+            id="fileInput" type="file" accept=".xlsx,.xls" className="file-input"
+            onChange={(e) => { setFile(e.target.files?.[0] || null); setResults(null); setError(""); }}
+          />
 
-          <button className="upload-btn" onClick={handleUpload} disabled={!file||uploading}>
+          <button className="upload-btn" onClick={handleUpload} disabled={!file || uploading}>
             {uploading ? "⏳ Processing both sheets..." : "⬆️ Upload and Update Dashboards"}
           </button>
 
@@ -412,7 +457,7 @@ const detectNewFunds = (rows1: any[], rows2: any[]): string[] => {
               {/* ── New investors warning ── */}
               {results.investorsNotFound.length > 0 && (
                 <div className="warn-investors">
-                  <h4>⚠️ New investors found — create their login accounts in Supabase → Authentication → Users:</h4>
+                  <h4>⚠️ CANs not found — add as new investors or check secondary_can mapping in Supabase:</h4>
                   {results.investorsNotFound.map((inv: string, i: number) => (
                     <div className="warn-item" key={i}>👤 {inv}</div>
                   ))}
@@ -448,13 +493,14 @@ const detectNewFunds = (rows1: any[], rows2: any[]): string[] => {
 
         <div className="card">
           <h2>📋 Monthly workflow</h2>
-          <ol className="instructions" style={{ paddingLeft:"1rem" }}>
+          <ol className="instructions" style={{ paddingLeft: "1rem" }}>
             <li><span className="step-badge">1</span>Login to <strong>TransactEezz / BSE StarMF</strong> → Reports → Transaction Report</li>
             <li><span className="step-badge">2</span>Select date range → Export as <strong>XLSX</strong></li>
             <li><span className="step-badge">3</span>Upload the <strong>XLSX file directly here</strong> — no conversion needed!</li>
             <li><span className="step-badge">4</span>Both sheets processed automatically — all dashboards update instantly ✅</li>
-            <li><span className="step-badge">5</span>If new investors appear, create their login in Supabase → Authentication → Users</li>
-            <li><span className="step-badge">6</span>If new funds appear (red warning), add their scheme codes to navHelper.ts</li>
+            <li><span className="step-badge">5</span>Minor child transactions recognised via <code>secondary_can</code> — no separate login needed ✅</li>
+            <li><span className="step-badge">6</span>If genuinely new investors appear (yellow warning), create their login in Supabase → Authentication → Users</li>
+            <li><span className="step-badge">7</span>If new funds appear (red warning), add their scheme codes to navHelper.ts</li>
           </ol>
         </div>
       </div>

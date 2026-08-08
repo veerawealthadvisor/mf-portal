@@ -9,26 +9,27 @@ export default function AdminDashboard() {
   const router = useRouter();
   useSessionGuard(router);
 
-  const [loading, setLoading] = useState(true);
-  const [navLoading, setNavLoading] = useState(false);
-  const [investors, setInvestors] = useState<any[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [navLoading, setNavLoading]     = useState(false);
+  const [investors, setInvestors]       = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
-  const [fundValues, setFundValues] = useState<any>({});
+  const [fundValues, setFundValues]     = useState<any>({});
   const [selectedInvestor, setSelectedInvestor] = useState<any>(null);
-  const [view, setView] = useState<"global" | "investor">("global");
+  const [view, setView]                 = useState<"global" | "investor">("global");
+
+  // Tab inside the investor detail view: primary vs minor child
+  const [detailTab, setDetailTab]       = useState<"self" | "child">("self");
 
   useEffect(() => {
     const fetchData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push("/login"); return; }
 
-      const { data: inv, error: invError } = await supabase
+      const { data: inv } = await supabase
         .from("investors")
         .select("*")
         .eq("email", user.email)
         .single();
-
-      console.log("Admin check:", inv, invError);
 
       if (!inv || !inv.is_admin) { router.push("/dashboard"); return; }
 
@@ -47,6 +48,7 @@ export default function AdminDashboard() {
       setTransactions(allTxns || []);
       setLoading(false);
 
+      // Enrich NAVs in background
       setNavLoading(true);
       const schemes = [...new Set((allTxns || []).map((t: any) => t.scheme_name))];
       const navMap: any = {};
@@ -71,13 +73,14 @@ export default function AdminDashboard() {
     router.push("/");
   };
 
+  // ── Global stats (all transactions — already includes child CANs) ─────────
   const totalInvested = transactions.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
 
   const fundUnitMap: any = {};
   transactions.forEach((t: any) => {
     const key = t.scheme_name;
     if (!fundUnitMap[key]) fundUnitMap[key] = { units: 0, invested: 0, fund: t.fund_name };
-    fundUnitMap[key].units += parseFloat(t.units) || 0;
+    fundUnitMap[key].units    += parseFloat(t.units)  || 0;
     fundUnitMap[key].invested += parseFloat(t.amount) || 0;
   });
 
@@ -86,27 +89,44 @@ export default function AdminDashboard() {
     return sum + (nav ? data.units * nav : data.invested);
   }, 0);
 
-  const totalGain = totalCurrentValue - totalInvested;
+  const totalGain    = totalCurrentValue - totalInvested;
   const totalGainPct = totalInvested > 0 ? (totalGain / totalInvested) * 100 : 0;
 
+  // ── Investor summary — includes secondary_can (minor child) in family total
   const investorSummary = investors.map((inv: any) => {
-    const txns = transactions.filter((t: any) => t.can === inv.can);
-    const invested = txns.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+    const primaryTxns = transactions.filter((t: any) => t.can === inv.can);
+    const childTxns   = inv.secondary_can
+      ? transactions.filter((t: any) => t.can === inv.secondary_can)
+      : [];
+    const allTxns = [...primaryTxns, ...childTxns];
+
+    // Build fund map across both
     const fundMap: any = {};
-    txns.forEach((t: any) => {
+    allTxns.forEach((t: any) => {
       if (!fundMap[t.scheme_name]) fundMap[t.scheme_name] = { units: 0 };
       fundMap[t.scheme_name].units += parseFloat(t.units) || 0;
     });
+
+    const invested     = allTxns.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
     const currentValue = Object.entries(fundMap).reduce((sum, [scheme, data]: any) => {
       const nav = fundValues[scheme];
-      return sum + (nav ? data.units * nav : invested / Object.keys(fundMap).length);
-    }, 0);
-    const gain = currentValue - invested;
+      return sum + (nav ? data.units * nav : 0);
+    }, 0) || invested; // fallback to invested if NAVs not loaded
+
+    const gain    = currentValue - invested;
     const gainPct = invested > 0 ? (gain / invested) * 100 : 0;
-    const funds = [...new Set(txns.map((t: any) => t.scheme_name))].length;
-    return { ...inv, invested, currentValue, gain, gainPct, funds, txnCount: txns.length };
+    const funds   = [...new Set(allTxns.map((t: any) => t.scheme_name))].length;
+
+    return {
+      ...inv,
+      invested, currentValue, gain, gainPct, funds,
+      txnCount:       allTxns.length,
+      primaryTxnCount: primaryTxns.length,
+      childTxnCount:   childTxns.length,
+    };
   });
 
+  // ── Top funds global ──────────────────────────────────────────────────────
   const topFunds = Object.entries(fundUnitMap)
     .map(([scheme, data]: any) => ({
       scheme, fund: data.fund, invested: data.invested,
@@ -115,25 +135,51 @@ export default function AdminDashboard() {
     }))
     .sort((a, b) => b.invested - a.invested);
 
+  // ── Monthly bar chart ─────────────────────────────────────────────────────
   const monthMap: any = {};
   transactions.forEach((t: any) => {
     const m = t.month_year || "";
     if (!monthMap[m]) monthMap[m] = 0;
     monthMap[m] += parseFloat(t.amount) || 0;
   });
-  const months = Object.entries(monthMap).sort();
+  const months   = Object.entries(monthMap).sort();
   const maxMonth = Math.max(...months.map(([, v]: any) => v), 1);
 
+  // ── Investor detail — switches by detailTab ────────────────────────────────
+  const activeCAN = selectedInvestor
+    ? (detailTab === "child" && selectedInvestor.secondary_can
+        ? selectedInvestor.secondary_can
+        : selectedInvestor.can)
+    : null;
+
   const selectedTxns = selectedInvestor
-    ? transactions.filter((t: any) => t.can === selectedInvestor.can)
+    ? transactions.filter((t: any) => t.can === activeCAN)
     : [];
 
   const selectedFunds: any = {};
   selectedTxns.forEach((t: any) => {
-    if (!selectedFunds[t.scheme_name]) selectedFunds[t.scheme_name] = { scheme: t.scheme_name, fund: t.fund_name, units: 0, invested: 0 };
-    selectedFunds[t.scheme_name].units += parseFloat(t.units) || 0;
+    if (!selectedFunds[t.scheme_name])
+      selectedFunds[t.scheme_name] = { scheme: t.scheme_name, fund: t.fund_name, units: 0, invested: 0 };
+    selectedFunds[t.scheme_name].units    += parseFloat(t.units)  || 0;
     selectedFunds[t.scheme_name].invested += parseFloat(t.amount) || 0;
   });
+
+  // Computed stats for detail view
+  const detailInvested     = selectedTxns.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+  const detailCurrentValue = Object.values(selectedFunds).reduce((sum: number, f: any) => {
+    const nav = fundValues[f.scheme];
+    return sum + (nav ? f.units * nav : f.invested);
+  }, 0) as number;
+  const detailGain    = detailCurrentValue - detailInvested;
+  const detailGainPct = detailInvested > 0 ? (detailGain / detailInvested) * 100 : 0;
+  const detailFunds   = Object.keys(selectedFunds).length;
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const openInvestorDetail = (inv: any) => {
+    setSelectedInvestor(inv);
+    setDetailTab("self"); // always reset to primary tab on open
+    setView("investor");
+  };
 
   if (loading) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0a1628", color: "#e8c97a", fontFamily: "DM Sans, sans-serif" }}>
@@ -146,14 +192,18 @@ export default function AdminDashboard() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=DM+Sans:wght@300;400;500&display=swap');
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        :root { --navy: #0a1628; --gold: #c9a84c; --gold2: #e8c97a; --white: #fff; --muted: #6b7280; --border: rgba(0,0,0,0.08); --green: #16a34a; --red: #dc2626; }
+        :root { --navy: #0a1628; --gold: #c9a84c; --gold2: #e8c97a; --white: #fff; --muted: #6b7280; --border: rgba(0,0,0,0.08); --green: #16a34a; --red: #dc2626; --purple: #7c3aed; }
         body { font-family: 'DM Sans', sans-serif; background: #f0ebe0; }
+
+        /* NAV */
         .nav { background: var(--navy); padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(201,168,76,0.2); position: sticky; top: 0; z-index: 50; }
         .nav-logo { font-family: 'Cormorant Garamond', serif; font-size: 1.2rem; font-weight: 700; color: var(--gold2); }
         .nav-right { display: flex; align-items: center; gap: 1rem; }
-        .nav-btn { background: transparent; border: 1px solid rgba(201,168,76,0.3); color: var(--gold); padding: 0.4rem 1rem; border-radius: 2px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; text-decoration: none; }
+        .nav-btn { background: transparent; border: 1px solid rgba(201,168,76,0.3); color: var(--gold); padding: 0.4rem 1rem; border-radius: 2px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; text-decoration: none; display: inline-block; }
         .nav-btn:hover { background: var(--gold); color: var(--navy); }
         .admin-badge { font-size: 0.7rem; background: rgba(201,168,76,0.15); color: var(--gold); padding: 3px 10px; border-radius: 10px; border: 1px solid rgba(201,168,76,0.3); }
+
+        /* LAYOUT */
         .main { max-width: 1200px; margin: 0 auto; padding: 2rem; }
         .page-header { margin-bottom: 2rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
         .page-header h1 { font-family: 'Cormorant Garamond', serif; font-size: 1.8rem; color: var(--navy); }
@@ -162,6 +212,8 @@ export default function AdminDashboard() {
         .view-tab { padding: 0.5rem 1.25rem; border-radius: 6px; border: none; background: none; font-family: 'DM Sans', sans-serif; font-size: 0.82rem; color: var(--muted); cursor: pointer; transition: all 0.2s; }
         .view-tab.active { background: var(--navy); color: var(--gold2); font-weight: 500; }
         .nav-loading { font-size: 0.72rem; color: var(--gold); background: rgba(201,168,76,0.1); border: 1px solid rgba(201,168,76,0.2); padding: 0.4rem 1rem; border-radius: 10px; display: inline-block; margin-bottom: 1rem; }
+
+        /* STAT CARDS */
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
         .stat-card { background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem 1.5rem; }
         .stat-card.navy { background: var(--navy); }
@@ -172,22 +224,40 @@ export default function AdminDashboard() {
         .stat-sub { font-size: 0.7rem; color: var(--muted); margin-top: 0.4rem; }
         .stat-card.navy .stat-sub { color: rgba(255,255,255,0.35); }
         .green { color: var(--green) !important; }
-        .red { color: var(--red) !important; }
+        .red   { color: var(--red)   !important; }
+
+        /* GRIDS / CARDS */
         .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
         .section-card { background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; }
         .section-card h3 { font-family: 'Cormorant Garamond', serif; font-size: 1.2rem; font-weight: 700; color: var(--navy); margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+
+        /* INVESTOR CARDS (grid) */
         .investor-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
         .investor-card { background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; cursor: pointer; transition: all 0.2s; }
         .investor-card:hover { border-color: var(--gold); transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
         .investor-card.selected { border-color: var(--gold); background: rgba(201,168,76,0.04); }
-        .inv-name { font-family: 'Cormorant Garamond', serif; font-size: 1.1rem; font-weight: 700; color: var(--navy); margin-bottom: 0.25rem; }
+        .inv-name { font-family: 'Cormorant Garamond', serif; font-size: 1.1rem; font-weight: 700; color: var(--navy); margin-bottom: 0.25rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .inv-can { font-size: 0.72rem; color: var(--muted); margin-bottom: 0.75rem; font-family: monospace; }
         .inv-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
         .inv-stat-label { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
         .inv-stat-val { font-size: 0.88rem; font-weight: 500; color: var(--navy); margin-top: 2px; }
+
+        /* MINOR CHILD BADGES */
+        .minor-badge { font-size: 0.65rem; background: rgba(124,58,237,0.1); color: var(--purple); border: 1px solid rgba(124,58,237,0.2); padding: 2px 8px; border-radius: 10px; font-family: 'DM Sans', sans-serif; font-weight: 500; white-space: nowrap; }
+        .minor-context-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.2); color: var(--purple); padding: 0.3rem 0.85rem; border-radius: 20px; font-size: 0.75rem; font-weight: 500; margin-bottom: 1rem; }
+
+        /* DETAIL TAB SWITCHER */
+        .detail-tabs { display: flex; gap: 0.4rem; background: white; padding: 0.35rem; border-radius: 8px; width: fit-content; border: 1px solid var(--border); margin-bottom: 1.5rem; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+        .detail-tab { padding: 0.45rem 1.25rem; border-radius: 6px; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 0.85rem; font-weight: 500; transition: all 0.2s; background: transparent; color: var(--muted); }
+        .detail-tab.active { background: var(--navy); color: var(--gold2); box-shadow: 0 1px 6px rgba(10,22,40,0.18); }
+        .detail-tab:not(.active):hover { background: rgba(10,22,40,0.05); color: var(--navy); }
+
+        /* GAIN BADGES */
         .gain-badge { display: inline-block; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
         .gain-badge.pos { background: rgba(22,163,74,0.1); color: var(--green); }
         .gain-badge.neg { background: rgba(220,38,38,0.1); color: var(--red); }
+
+        /* TABLES */
         .fund-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
         .fund-table th { text-align: left; padding: 0.5rem 0.75rem; font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); font-weight: 400; }
         .fund-table td { padding: 0.7rem 0.75rem; border-bottom: 1px solid rgba(0,0,0,0.04); vertical-align: middle; }
@@ -195,35 +265,46 @@ export default function AdminDashboard() {
         .fund-table tr:hover td { background: rgba(201,168,76,0.03); }
         .fund-name { font-weight: 500; color: var(--navy); font-size: 0.8rem; }
         .fund-amc { font-size: 0.68rem; color: var(--muted); }
+        .no-data { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 2rem 0; }
+
+        /* BAR CHART */
         .bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 120px; margin-top: 0.5rem; }
         .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }
         .bar { width: 100%; background: var(--gold); border-radius: 3px 3px 0 0; min-height: 3px; transition: all 0.3s; }
         .bar:hover { background: var(--gold2); }
         .bar-label { font-size: 9px; color: var(--muted); text-align: center; }
         .bar-val { font-size: 8px; color: var(--muted); }
-        .inv-detail-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
-        .inv-detail-header h2 { font-family: 'Cormorant Garamond', serif; font-size: 1.5rem; color: var(--navy); }
-        .back-btn { background: none; border: 1px solid var(--border); padding: 0.4rem 1rem; border-radius: 4px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; color: var(--muted); cursor: pointer; transition: all 0.2s; }
+
+        /* INVESTOR DETAIL HEADER */
+        .inv-detail-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 1.5rem; gap: 1rem; flex-wrap: wrap; }
+        .inv-detail-header h2 { font-family: 'Cormorant Garamond', serif; font-size: 1.5rem; color: var(--navy); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .back-btn { background: none; border: 1px solid var(--border); padding: 0.4rem 1rem; border-radius: 4px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; color: var(--muted); cursor: pointer; transition: all 0.2s; white-space: nowrap; }
         .back-btn:hover { border-color: var(--navy); color: var(--navy); }
+
+        /* TRANSACTIONS LIST */
         .txn-list { display: flex; flex-direction: column; gap: 0.6rem; max-height: 400px; overflow-y: auto; }
         .txn-item { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; background: #faf9f6; border-radius: 6px; border: 1px solid rgba(0,0,0,0.04); }
         .txn-scheme { font-size: 0.8rem; font-weight: 500; color: var(--navy); }
         .txn-date { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
         .txn-amount { font-size: 0.88rem; font-weight: 500; color: var(--navy); text-align: right; }
         .txn-units { font-size: 0.7rem; color: var(--muted); margin-top: 2px; text-align: right; }
+
         @media (max-width: 768px) {
           .stats-grid { grid-template-columns: repeat(2, 1fr); }
           .grid2 { grid-template-columns: 1fr; }
           .main { padding: 1rem; }
+          .detail-tabs { width: 100%; }
+          .detail-tab { flex: 1; text-align: center; }
         }
       `}</style>
 
+      {/* ── NAVBAR ── */}
       <nav className="nav">
         <div className="nav-logo">Veera Karthik · Admin</div>
         <div className="nav-right">
           <span className="admin-badge">Admin</span>
           <a href="/admin/upload" className="nav-btn">Upload Data</a>
-          <a href="/admin/goals" className="nav-btn">🎯 Goals</a>
+          <a href="/admin/goals"  className="nav-btn">🎯 Goals</a>
           <button className="nav-btn" onClick={handleLogout}>Logout</button>
         </div>
       </nav>
@@ -232,13 +313,15 @@ export default function AdminDashboard() {
         <div className="page-header">
           <div>
             <h1>Admin Dashboard</h1>
-            <p>Complete overview of all investor portfolios</p>
+            <p>Complete overview of all investor portfolios · Minor child accounts shown under parent</p>
           </div>
           <div className="view-tabs">
-            <button className={`view-tab ${view === "global" ? "active" : ""}`} onClick={() => { setView("global"); setSelectedInvestor(null); }}>
+            <button className={`view-tab ${view === "global" ? "active" : ""}`}
+              onClick={() => { setView("global"); setSelectedInvestor(null); }}>
               🌐 Global View
             </button>
-            <button className={`view-tab ${view === "investor" ? "active" : ""}`} onClick={() => setView("investor")}>
+            <button className={`view-tab ${view === "investor" ? "active" : ""}`}
+              onClick={() => setView("investor")}>
               👥 Investor View
             </button>
           </div>
@@ -246,11 +329,12 @@ export default function AdminDashboard() {
 
         {navLoading && <div className="nav-loading">⏳ Fetching live NAVs from AMFI...</div>}
 
+        {/* ── GLOBAL STAT CARDS ── */}
         <div className="stats-grid">
           <div className="stat-card navy">
             <div className="stat-label">Total AUM</div>
             <div className="stat-value">₹{totalInvested.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</div>
-            <div className="stat-sub">Total invested</div>
+            <div className="stat-sub">All investors incl. minors</div>
           </div>
           <div className="stat-card">
             <div className="stat-label">Current Value</div>
@@ -267,10 +351,16 @@ export default function AdminDashboard() {
           <div className="stat-card">
             <div className="stat-label">Investors</div>
             <div className="stat-value">{investors.length}</div>
-            <div className="stat-sub">{transactions.length} total transactions</div>
+            <div className="stat-sub">
+              {investors.filter(i => i.secondary_can).length > 0
+                ? `${investors.filter(i => i.secondary_can).length} with minor linked · `
+                : ""}
+              {transactions.length} total txns
+            </div>
           </div>
         </div>
 
+        {/* ── GLOBAL VIEW ── */}
         {view === "global" && (
           <>
             <div className="grid2">
@@ -280,7 +370,8 @@ export default function AdminDashboard() {
                   {months.map(([month, val]: any) => (
                     <div className="bar-col" key={month}>
                       <div className="bar-val">₹{(val / 1000).toFixed(0)}k</div>
-                      <div className="bar" style={{ height: `${(val / maxMonth) * 90}px` }} title={`₹${val.toLocaleString("en-IN")}`} />
+                      <div className="bar" style={{ height: `${(val / maxMonth) * 90}px` }}
+                        title={`₹${val.toLocaleString("en-IN")}`} />
                       <div className="bar-label">{month.slice(5)}</div>
                     </div>
                   ))}
@@ -307,17 +398,38 @@ export default function AdminDashboard() {
                 </table>
               </div>
             </div>
+
+            {/* ── All Investors Summary Table ── */}
             <div className="section-card">
               <h3>👥 All Investors Summary</h3>
               <table className="fund-table">
                 <thead>
-                  <tr><th>Investor</th><th>CAN</th><th>Funds</th><th>Invested</th><th>Current Value</th><th>Gain</th></tr>
+                  <tr>
+                    <th>Investor</th>
+                    <th>CAN</th>
+                    <th>Funds</th>
+                    <th>Invested</th>
+                    <th>Current Value</th>
+                    <th>Gain</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {investorSummary.map((inv: any, i) => (
-                    <tr key={i} style={{ cursor: "pointer" }} onClick={() => { setSelectedInvestor(inv); setView("investor"); }}>
-                      <td><div className="fund-name">{inv.name}</div></td>
-                      <td><span style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "var(--muted)" }}>{inv.can}</span></td>
+                    <tr key={i} style={{ cursor: "pointer" }}
+                      onClick={() => openInvestorDetail(inv)}>
+                      <td>
+                        <div className="fund-name" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          {inv.name}
+                          {inv.secondary_can && (
+                            <span className="minor-badge">👶 {inv.secondary_name || "Minor"}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <span style={{ fontFamily: "monospace", fontSize: "0.75rem", color: "var(--muted)" }}>
+                          {inv.can}
+                        </span>
+                      </td>
                       <td>{inv.funds}</td>
                       <td>₹{inv.invested.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
                       <td>₹{inv.currentValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
@@ -334,16 +446,23 @@ export default function AdminDashboard() {
           </>
         )}
 
+        {/* ── INVESTOR GRID (select view) ── */}
         {view === "investor" && !selectedInvestor && (
           <>
             <p style={{ color: "var(--muted)", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
-              Click on an investor to see their detailed portfolio
+              Click on an investor to see their detailed portfolio · 👶 indicates a linked minor child account
             </p>
             <div className="investor-grid">
               {investorSummary.map((inv: any, i) => (
-                <div key={i} className={`investor-card ${selectedInvestor?.can === inv.can ? "selected" : ""}`}
-                  onClick={() => setSelectedInvestor(inv)}>
-                  <div className="inv-name">{inv.name}</div>
+                <div key={i}
+                  className={`investor-card ${selectedInvestor?.can === inv.can ? "selected" : ""}`}
+                  onClick={() => openInvestorDetail(inv)}>
+                  <div className="inv-name">
+                    {inv.name}
+                    {inv.secondary_can && (
+                      <span className="minor-badge">👶 {inv.secondary_name || "Minor"}</span>
+                    )}
+                  </div>
                   <div className="inv-can">CAN: {inv.can}</div>
                   <div className="inv-stats">
                     <div>
@@ -373,88 +492,148 @@ export default function AdminDashboard() {
           </>
         )}
 
+        {/* ── INVESTOR DETAIL VIEW ── */}
         {view === "investor" && selectedInvestor && (
           <>
+            {/* Header */}
             <div className="inv-detail-header">
               <div>
-                <h2>{selectedInvestor.name}</h2>
-                <p style={{ color: "var(--muted)", fontSize: "0.82rem" }}>CAN: {selectedInvestor.can} · {selectedInvestor.email}</p>
+                <h2>
+                  {selectedInvestor.name}
+                  {selectedInvestor.secondary_can && (
+                    <span className="minor-badge">👶 {selectedInvestor.secondary_name || "Minor"}</span>
+                  )}
+                </h2>
+                <p style={{ color: "var(--muted)", fontSize: "0.82rem", marginTop: "0.25rem" }}>
+                  CAN: {selectedInvestor.can} · {selectedInvestor.email}
+                  {selectedInvestor.secondary_can && (
+                    <> · Minor CAN: {selectedInvestor.secondary_can}</>
+                  )}
+                </p>
               </div>
               <button className="back-btn" onClick={() => setSelectedInvestor(null)}>← All Investors</button>
             </div>
+
+            {/* Tab switcher — only shown when secondary_can exists */}
+            {selectedInvestor.secondary_can && (
+              <div className="detail-tabs">
+                <button
+                  className={`detail-tab ${detailTab === "self" ? "active" : ""}`}
+                  onClick={() => setDetailTab("self")}
+                >
+                  👤 {selectedInvestor.name?.split(" ")[0]}
+                </button>
+                <button
+                  className={`detail-tab ${detailTab === "child" ? "active" : ""}`}
+                  onClick={() => setDetailTab("child")}
+                >
+                  👶 {selectedInvestor.secondary_name || "Minor"}
+                </button>
+              </div>
+            )}
+
+            {/* Context badge when viewing child */}
+            {detailTab === "child" && selectedInvestor.secondary_can && (
+              <div className="minor-context-badge">
+                👶 Viewing portfolio of {selectedInvestor.secondary_name || "Minor"} · CAN: {selectedInvestor.secondary_can}
+              </div>
+            )}
+
+            {/* Stat cards for active tab */}
             <div className="stats-grid" style={{ marginBottom: "1.5rem" }}>
               <div className="stat-card navy">
                 <div className="stat-label">Total Invested</div>
-                <div className="stat-value">₹{selectedInvestor.invested.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</div>
+                <div className="stat-value">₹{detailInvested.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</div>
                 <div className="stat-sub">Amount invested</div>
               </div>
               <div className="stat-card">
                 <div className="stat-label">Current Value</div>
-                <div className="stat-value">₹{selectedInvestor.currentValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</div>
+                <div className="stat-value">₹{detailCurrentValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</div>
                 <div className="stat-sub">Live value</div>
               </div>
               <div className="stat-card">
                 <div className="stat-label">Gain / Loss</div>
-                <div className={`stat-value ${selectedInvestor.gain >= 0 ? "green" : "red"}`}>
-                  {selectedInvestor.gain >= 0 ? "+" : ""}₹{Math.abs(selectedInvestor.gain).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                <div className={`stat-value ${detailGain >= 0 ? "green" : "red"}`}>
+                  {detailGain >= 0 ? "+" : ""}₹{Math.abs(detailGain).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
                 </div>
-                <div className="stat-sub">{selectedInvestor.gainPct.toFixed(2)}% return</div>
+                <div className="stat-sub">{detailGainPct.toFixed(2)}% return</div>
               </div>
               <div className="stat-card">
                 <div className="stat-label">Active Funds</div>
-                <div className="stat-value">{selectedInvestor.funds}</div>
-                <div className="stat-sub">{selectedInvestor.txnCount} transactions</div>
+                <div className="stat-value">{detailFunds}</div>
+                <div className="stat-sub">{selectedTxns.length} transactions</div>
               </div>
             </div>
-            <div className="grid2">
+
+            {/* No data state */}
+            {selectedTxns.length === 0 ? (
               <div className="section-card">
-                <h3>💼 Fund Breakdown</h3>
-                <table className="fund-table">
-                  <thead>
-                    <tr><th>Scheme</th><th>Units</th><th>Invested</th><th>Curr. Value</th></tr>
-                  </thead>
-                  <tbody>
-                    {Object.values(selectedFunds).map((f: any, i) => {
-                      const nav = fundValues[f.scheme];
-                      const cv = nav ? f.units * nav : f.invested;
-                      const gain = cv - f.invested;
-                      const gainPct = f.invested > 0 ? (gain / f.invested) * 100 : 0;
-                      return (
-                        <tr key={i}>
-                          <td>
-                            <div className="fund-name">{f.scheme?.length > 28 ? f.scheme.slice(0, 28) + "…" : f.scheme}</div>
-                            <div className="fund-amc">{f.fund}</div>
-                          </td>
-                          <td style={{ fontSize: "0.78rem" }}>{f.units.toFixed(3)}</td>
-                          <td>₹{f.invested.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
-                          <td>
-                            ₹{cv.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-                            <div><span className={`gain-badge ${gain >= 0 ? "pos" : "neg"}`}>{gain >= 0 ? "+" : ""}{gainPct.toFixed(1)}%</span></div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <p className="no-data">
+                  {detailTab === "child"
+                    ? "No transactions found for this minor child yet. Upload data with CAN " + selectedInvestor.secondary_can + " to see portfolio."
+                    : "No transactions found."}
+                </p>
               </div>
-              <div className="section-card">
-                <h3>🧾 Transactions</h3>
-                <div className="txn-list">
-                  {selectedTxns.map((t: any, i) => (
-                    <div className="txn-item" key={i}>
-                      <div>
-                        <div className="txn-scheme">{t.scheme_name?.length > 35 ? t.scheme_name.slice(0, 35) + "…" : t.scheme_name}</div>
-                        <div className="txn-date">{t.transaction_date}</div>
+            ) : (
+              <div className="grid2">
+                {/* Fund breakdown */}
+                <div className="section-card">
+                  <h3>💼 Fund Breakdown</h3>
+                  <table className="fund-table">
+                    <thead>
+                      <tr><th>Scheme</th><th>Units</th><th>Invested</th><th>Curr. Value</th></tr>
+                    </thead>
+                    <tbody>
+                      {Object.values(selectedFunds).map((f: any, i) => {
+                        const nav = fundValues[f.scheme];
+                        const cv  = nav ? f.units * nav : f.invested;
+                        const g   = cv - f.invested;
+                        const gp  = f.invested > 0 ? (g / f.invested) * 100 : 0;
+                        return (
+                          <tr key={i}>
+                            <td>
+                              <div className="fund-name">{f.scheme?.length > 28 ? f.scheme.slice(0, 28) + "…" : f.scheme}</div>
+                              <div className="fund-amc">{f.fund}</div>
+                            </td>
+                            <td style={{ fontSize: "0.78rem" }}>{f.units.toFixed(3)}</td>
+                            <td>₹{f.invested.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
+                            <td>
+                              ₹{cv.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                              <div>
+                                <span className={`gain-badge ${g >= 0 ? "pos" : "neg"}`}>
+                                  {g >= 0 ? "+" : ""}{gp.toFixed(1)}%
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Transactions */}
+                <div className="section-card">
+                  <h3>🧾 Transactions</h3>
+                  <div className="txn-list">
+                    {selectedTxns.map((t: any, i) => (
+                      <div className="txn-item" key={i}>
+                        <div>
+                          <div className="txn-scheme">
+                            {t.scheme_name?.length > 35 ? t.scheme_name.slice(0, 35) + "…" : t.scheme_name}
+                          </div>
+                          <div className="txn-date">{t.transaction_date}</div>
+                        </div>
+                        <div>
+                          <div className="txn-amount">₹{parseFloat(t.amount).toLocaleString("en-IN", { maximumFractionDigits: 0 })}</div>
+                          <div className="txn-units">{parseFloat(t.units).toFixed(3)} units</div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="txn-amount">₹{parseFloat(t.amount).toLocaleString("en-IN", { maximumFractionDigits: 0 })}</div>
-                        <div className="txn-units">{parseFloat(t.units).toFixed(3)} units</div>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </>
         )}
       </div>

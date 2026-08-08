@@ -1,12 +1,11 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../lib/supabase";
 import { getLiveNAV } from "../../lib/navHelper";
 import { useRouter } from "next/navigation";
 import { useSessionGuard } from "../../lib/sessionGuard";
 
 // ── HARDWIRED FUND CLASSIFICATION ──────────────────────────────────────────
-// Keyed by lowercase scheme name — must match scheme_name in transactions table
 const FUND_CLASSIFICATION: Record<string, { type: "equity" | "debt"; subtype: string }> = {
   "axis nifty 100 index fund regular growth":                                        { type: "equity", subtype: "Large Cap" },
   "axis short duration fund - growth":                                               { type: "debt",   subtype: "Debt" },
@@ -25,47 +24,37 @@ const FUND_CLASSIFICATION: Record<string, { type: "equity" | "debt"; subtype: st
   "motilal oswal midcap fund - regular plan growth":                                 { type: "equity", subtype: "Mid Cap" },
   "nippon india growth mid cap fund - growth plan growth option":                    { type: "equity", subtype: "Mid Cap" },
   "parag parikh flexi cap fund-regular-growth":                                      { type: "equity", subtype: "Flexi Cap" },
-  // ── New funds added July 2026 ──
   "invesco india ultra short duration fund - regular plan - growth":                 { type: "debt",   subtype: "Debt" },
   "kotak midcap fund -growth":                                                       { type: "equity", subtype: "Mid Cap" },
   "motilal oswal ultra short term fund regular growth":                              { type: "debt",   subtype: "Debt" },
   "nippon india banking & financial services fund growth plan growth option":        { type: "equity", subtype: "Sectoral" },
   "nippon india ultra short duration fund - growth option":                          { type: "debt",   subtype: "Debt" },
-  "parag parikh arbitrage fund - regular plan growth":                               { type: "debt", subtype: "Debt" },
-  "invesco india low duration fund growth":                          { type: "debt",   subtype: "Debt" },
-"invesco india midcap fund - regular plan - growth":              { type: "equity", subtype: "Mid Cap" },
-"invesco india smallcap fund - regular plan - growth":            { type: "equity", subtype: "Small Cap" },
-"tata digital india fund-regular plan-growth":                    { type: "equity", subtype: "Sectoral" },
-"tata ethical fund-regular plan - growth option":                 { type: "equity", subtype: "Equity" },
-"tata short term bond fund -regular plan- growth option":         { type: "debt",   subtype: "Debt" },
-"tata ultra short term fund-regular plan-growth":                 { type: "debt",   subtype: "Debt" },
+  "parag parikh arbitrage fund - regular plan growth":                               { type: "debt",   subtype: "Debt" },
+  "invesco india low duration fund growth":                                          { type: "debt",   subtype: "Debt" },
+  "invesco india midcap fund - regular plan - growth":                               { type: "equity", subtype: "Mid Cap" },
+  "invesco india smallcap fund - regular plan - growth":                             { type: "equity", subtype: "Small Cap" },
+  "tata digital india fund-regular plan-growth":                                     { type: "equity", subtype: "Sectoral" },
+  "tata ethical fund-regular plan - growth option":                                  { type: "equity", subtype: "Equity" },
+  "tata short term bond fund -regular plan- growth option":                          { type: "debt",   subtype: "Debt" },
+  "tata ultra short term fund-regular plan-growth":                                  { type: "debt",   subtype: "Debt" },
+  "invesco india small cap fund regular growth":                                     { type: "equity", subtype: "Small Cap" },
+  "tata digital india fund regular plan growth":                                     { type: "equity", subtype: "Sectoral" },
+  "tata ethical fund regular plan - growth":                                         { type: "equity", subtype: "Equity" },
+  "tata short term bond fund regular plan - growth":                                 { type: "debt",   subtype: "Debt" },
+  "tata ultra short term fund - regular plan - growth":                              { type: "debt",   subtype: "Debt" },
 };
+
 function normalizeSchemeName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "")
-    .trim();
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "").trim();
 }
 
-function classifyFund(
-  schemeName: string
-): { type: "equity" | "debt"; subtype: string } {
+function classifyFund(schemeName: string): { type: "equity" | "debt"; subtype: string } {
   const normalizedKey = normalizeSchemeName(schemeName);
-
   for (const [key, value] of Object.entries(FUND_CLASSIFICATION)) {
-    if (normalizeSchemeName(key) === normalizedKey) {
-      return value;
-    }
+    if (normalizeSchemeName(key) === normalizedKey) return value;
   }
-
-  console.warn(
-    `[classifyFund] Unknown scheme — defaulting to equity: "${schemeName}"`
-  );
-
-  return {
-    type: "equity",
-    subtype: "Equity",
-  };
+  console.warn(`[classifyFund] Unknown scheme — defaulting to equity: "${schemeName}"`);
+  return { type: "equity", subtype: "Equity" };
 }
 
 const EQUITY_COLORS: Record<string, string> = {
@@ -80,9 +69,12 @@ const EQUITY_COLORS: Record<string, string> = {
   "Equity":          "#6366f1",
 };
 
+// ── DONUT CHART ─────────────────────────────────────────────────────────────
 function DonutChart({ data, centerLabel, centerValue, size = 160 }: any) {
   const total = data.reduce((s: number, d: any) => s + d.value, 0);
-  if (total === 0) return <p style={{ color: "var(--muted)", fontSize: "0.85rem", textAlign: "center", padding: "2rem 0" }}>No data</p>;
+  if (total === 0) return (
+    <p style={{ color: "var(--muted)", fontSize: "0.85rem", textAlign: "center", padding: "2rem 0" }}>No data</p>
+  );
 
   let cumAngle = -90;
   const cx = size / 2, cy = size / 2;
@@ -135,15 +127,69 @@ function DonutChart({ data, centerLabel, centerValue, size = 160 }: any) {
   );
 }
 
+// ── BUILD FUND MAP (shared helper) ──────────────────────────────────────────
+function buildFundMap(txnList: any[]): any[] {
+  const fundMap: Record<string, any> = {};
+  txnList.forEach((t: any) => {
+    const key = t.scheme_name;
+    if (!fundMap[key]) {
+      fundMap[key] = {
+        scheme: t.scheme_name,
+        fund: t.fund_name,
+        amount: 0,
+        units: 0,
+        firstDate: t.transaction_date,
+        currentNAV: null,
+        currentValue: null,
+        navDate: null,
+        gain: null,
+        gainPct: null,
+      };
+    }
+    fundMap[key].amount += parseFloat(t.amount) || 0;
+    fundMap[key].units  += parseFloat(t.units)  || 0;
+  });
+  return Object.values(fundMap);
+}
+
+// ── ENRICH FUNDS WITH LIVE NAV ───────────────────────────────────────────────
+async function enrichFundsWithNAV(fundList: any[]): Promise<any[]> {
+  return Promise.all(
+    fundList.map(async (f: any) => {
+      const navData = await getLiveNAV(f.scheme);
+      if (navData) {
+        const currentValue = f.units * navData.nav;
+        const gain = currentValue - f.amount;
+        const gainPct = (gain / f.amount) * 100;
+        return { ...f, currentNAV: navData.nav, currentValue, navDate: navData.date, gain, gainPct };
+      }
+      return f;
+    })
+  );
+}
+
+// ── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 export default function Dashboard() {
   const router = useRouter();
   useSessionGuard(router);
-  const [investor, setInvestor] = useState<any>(null);
-  const [transactions, setTransactions] = useState<any[]>([]);
-  const [funds, setFunds] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [navLoading, setNavLoading] = useState(false);
-  const [firstTxnDate, setFirstTxnDate] = useState<string | null>(null);
+
+  const [investor, setInvestor]                 = useState<any>(null);
+  const [loading, setLoading]                   = useState(true);
+
+  // Tab: "self" = primary investor | "child" = minor child
+  const [activeTab, setActiveTab]               = useState<"self" | "child">("self");
+
+  // Primary investor data
+  const [transactions, setTransactions]         = useState<any[]>([]);
+  const [funds, setFunds]                       = useState<any[]>([]);
+  const [navLoading, setNavLoading]             = useState(false);
+  const [firstTxnDate, setFirstTxnDate]         = useState<string | null>(null);
+
+  // Minor child data
+  const [childTransactions, setChildTransactions] = useState<any[]>([]);
+  const [childFunds, setChildFunds]               = useState<any[]>([]);
+  const [childNavLoading, setChildNavLoading]     = useState(false);
+  const [childFirstTxnDate, setChildFirstTxnDate] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -156,55 +202,56 @@ export default function Dashboard() {
         .eq("email", user.email)
         .single();
 
-      if (inv) {
-          if (inv.is_admin) {
-    router.push("/admin/dashboard");
-    return;
-  }
-        setInvestor(inv);
-        const { data: txns } = await supabase
+      if (!inv) { setLoading(false); return; }
+      if (inv.is_admin) { router.push("/admin/dashboard"); return; }
+
+      setInvestor(inv);
+
+      // ── Fetch primary investor transactions ──
+      const { data: txns } = await supabase
+        .from("transactions")
+        .select("*")
+        .eq("can", inv.can)
+        .order("transaction_date", { ascending: true });
+
+      const txnList = txns || [];
+      setTransactions([...txnList].reverse());
+      if (txnList.length > 0) setFirstTxnDate(txnList[0].transaction_date);
+      const primaryFunds = buildFundMap(txnList);
+      setFunds(primaryFunds);
+
+      // ── Fetch minor child transactions (if secondary_can exists) ──
+      if (inv.secondary_can) {
+        const { data: childTxns } = await supabase
           .from("transactions")
           .select("*")
-          .eq("can", inv.can)
+          .eq("can", inv.secondary_can)
           .order("transaction_date", { ascending: true });
 
-        const txnList = txns || [];
-        setTransactions([...txnList].reverse());
-        if (txnList.length > 0) setFirstTxnDate(txnList[0].transaction_date);
+        const childTxnList = childTxns || [];
+        setChildTransactions([...childTxnList].reverse());
+        if (childTxnList.length > 0) setChildFirstTxnDate(childTxnList[0].transaction_date);
+        const childFundList = buildFundMap(childTxnList);
+        setChildFunds(childFundList);
 
-        const fundMap: any = {};
-        txnList.forEach((t: any) => {
-          const key = t.scheme_name;
-          if (!fundMap[key]) {
-            fundMap[key] = { scheme: t.scheme_name, fund: t.fund_name, amount: 0, units: 0, firstDate: t.transaction_date, currentNAV: null, currentValue: null, navDate: null, gain: null, gainPct: null };
-          }
-          fundMap[key].amount += parseFloat(t.amount) || 0;
-          fundMap[key].units += parseFloat(t.units) || 0;
+        // Enrich child NAVs in background
+        setChildNavLoading(true);
+        enrichFundsWithNAV(childFundList).then((enriched) => {
+          setChildFunds(enriched);
+          setChildNavLoading(false);
         });
-
-        const fundList = Object.values(fundMap);
-        setFunds(fundList);
-        setLoading(false);
-
-        setNavLoading(true);
-        const updated = await Promise.all(
-          fundList.map(async (f: any) => {
-            const navData = await getLiveNAV(f.scheme);
-            if (navData) {
-              const currentValue = f.units * navData.nav;
-              const gain = currentValue - f.amount;
-              const gainPct = (gain / f.amount) * 100;
-              return { ...f, currentNAV: navData.nav, currentValue, navDate: navData.date, gain, gainPct };
-            }
-            return f;
-          })
-        );
-        setFunds(updated);
-        setNavLoading(false);
-      } else {
-        setLoading(false);
       }
+
+      setLoading(false);
+
+      // Enrich primary NAVs in background
+      setNavLoading(true);
+      enrichFundsWithNAV(primaryFunds).then((enriched) => {
+        setFunds(enriched);
+        setNavLoading(false);
+      });
     };
+
     fetchData();
   }, []);
 
@@ -213,14 +260,23 @@ export default function Dashboard() {
     router.push("/");
   };
 
-  const totalInvested = funds.reduce((s, f) => s + f.amount, 0);
-  const totalCurrent = funds.reduce((s, f) => s + (f.currentValue || f.amount), 0);
-  const totalGain = totalCurrent - totalInvested;
-  const totalGainPct = totalInvested > 0 ? (totalGain / totalInvested) * 100 : 0;
+  // ── Active data (switches by tab) ──────────────────────────────────────────
+  const isChild          = activeTab === "child";
+  const activeFunds      = isChild ? childFunds      : funds;
+  const activeTransactions = isChild ? childTransactions : transactions;
+  const activeNavLoading = isChild ? childNavLoading : navLoading;
+  const activeFirstDate  = isChild ? childFirstTxnDate : firstTxnDate;
+  const activeCAN        = isChild ? investor?.secondary_can : investor?.can;
+
+  // ── Computed stats ─────────────────────────────────────────────────────────
+  const totalInvested = activeFunds.reduce((s, f) => s + f.amount, 0);
+  const totalCurrent  = activeFunds.reduce((s, f) => s + (f.currentValue || f.amount), 0);
+  const totalGain     = totalCurrent - totalInvested;
+  const totalGainPct  = totalInvested > 0 ? (totalGain / totalInvested) * 100 : 0;
 
   const calcCAGR = () => {
-    if (!firstTxnDate || totalInvested === 0 || navLoading) return null;
-    const start = new Date(firstTxnDate);
+    if (!activeFirstDate || totalInvested === 0 || activeNavLoading) return null;
+    const start = new Date(activeFirstDate);
     const today = new Date();
     const years = (today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
     if (years < 0.08) return null;
@@ -230,53 +286,55 @@ export default function Dashboard() {
 
   // Equity vs Debt split
   let equityValue = 0, debtValue = 0;
-  const equitySubMap: any = {};
-  funds.forEach((f: any) => {
+  const equitySubMap: Record<string, number> = {};
+  activeFunds.forEach((f: any) => {
     const val = f.currentValue || f.amount;
     const { type, subtype } = classifyFund(f.scheme);
     if (type === "debt") {
       debtValue += val;
     } else {
       equityValue += val;
-      if (!equitySubMap[subtype]) equitySubMap[subtype] = 0;
-      equitySubMap[subtype] += val;
+      equitySubMap[subtype] = (equitySubMap[subtype] || 0) + val;
     }
   });
 
   const equityDebtData = [
     { label: "Equity", value: equityValue, color: "#c9a84c" },
-    { label: "Debt", value: debtValue, color: "#0a1628" },
+    { label: "Debt",   value: debtValue,   color: "#0a1628" },
   ].filter(d => d.value > 0);
 
-  const equitySubData = Object.entries(equitySubMap).map(([label, value]: any) => ({
+  const equitySubData = Object.entries(equitySubMap).map(([label, value]) => ({
     label,
     value,
     color: EQUITY_COLORS[label] || "#6366f1",
   }));
 
-  // Portfolio insight
   const equityPct = totalCurrent > 0 ? (equityValue / totalCurrent) * 100 : 0;
   const getInsight = () => {
-    if (equityPct >= 80) return { label: "🚀 Growth Oriented", desc: "High equity exposure — suited for long-term wealth creation", color: "#16a34a" };
-    if (equityPct >= 50) return { label: "⚖️ Balanced Portfolio", desc: "Mix of equity and debt — moderate risk and stable returns", color: "#c9a84c" };
-    return { label: "🛡️ Capital Preservation", desc: "High debt exposure — focused on stability and low risk", color: "#1e40af" };
+    if (equityPct >= 80) return { label: "🚀 Growth Oriented",      desc: "High equity exposure — suited for long-term wealth creation",      color: "#16a34a" };
+    if (equityPct >= 50) return { label: "⚖️ Balanced Portfolio",   desc: "Mix of equity and debt — moderate risk and stable returns",        color: "#c9a84c" };
+    return                      { label: "🛡️ Capital Preservation", desc: "High debt exposure — focused on stability and low risk",            color: "#1e40af" };
   };
   const insight = getInsight();
 
-  const monthMap: any = {};
-  transactions.forEach((t: any) => {
+  // Monthly bar chart
+  const monthMap: Record<string, number> = {};
+  activeTransactions.forEach((t: any) => {
     const m = t.month_year || (t.transaction_date ? t.transaction_date.slice(0, 7) : "Unknown");
-    if (!monthMap[m]) monthMap[m] = 0;
-    monthMap[m] += parseFloat(t.amount) || 0;
+    monthMap[m] = (monthMap[m] || 0) + (parseFloat(t.amount) || 0);
   });
   const months = Object.entries(monthMap).sort();
-  const maxMonthVal = Math.max(...months.map(([, v]: any) => v), 1);
+  const maxMonthVal = Math.max(...months.map(([, v]) => v), 1);
 
+  // ── Loading screen ─────────────────────────────────────────────────────────
   if (loading) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0a1628", color: "#e8c97a", fontFamily: "DM Sans, sans-serif" }}>
       Loading your portfolio...
     </div>
   );
+
+  const hasChild = !!investor?.secondary_can;
+  const childLabel = investor?.secondary_name || "Minor";
 
   return (
     <>
@@ -285,16 +343,28 @@ export default function Dashboard() {
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         :root { --navy: #0a1628; --gold: #c9a84c; --gold2: #e8c97a; --white: #ffffff; --muted: #6b7280; --border: rgba(0,0,0,0.08); --green: #16a34a; --red: #dc2626; }
         body { font-family: 'DM Sans', sans-serif; background: #f0ebe0; }
+
+        /* NAV */
         .dash-nav { background: var(--navy); padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(201,168,76,0.2); position: sticky; top: 0; z-index: 50; }
         .dash-nav-logo { font-family: 'Cormorant Garamond', serif; font-size: 1.2rem; font-weight: 700; color: var(--gold2); }
         .dash-nav-right { display: flex; align-items: center; gap: 1.5rem; }
         .investor-name { font-size: 0.85rem; color: rgba(255,255,255,0.6); }
-        .logout-btn { background: transparent; border: 1px solid rgba(201,168,76,0.3); color: var(--gold); padding: 0.4rem 1rem; border-radius: 2px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; }
-        .logout-btn:hover { background: var(--gold); color: var(--navy); }
+        .nav-btn { background: transparent; border: 1px solid rgba(201,168,76,0.3); color: var(--gold); padding: 0.4rem 1rem; border-radius: 2px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; }
+        .nav-btn:hover { background: var(--gold); color: var(--navy); }
+
+        /* MAIN */
         .dash-main { max-width: 1100px; margin: 0 auto; padding: 2rem; }
-        .welcome { margin-bottom: 2rem; }
+        .welcome { margin-bottom: 1.5rem; }
         .welcome h2 { font-family: 'Cormorant Garamond', serif; font-size: 1.8rem; font-weight: 700; color: var(--navy); margin-bottom: 0.25rem; }
         .welcome p { font-size: 0.85rem; color: var(--muted); }
+
+        /* MEMBER TAB SWITCHER */
+        .member-tabs { display: flex; gap: 0.4rem; margin-bottom: 1.75rem; background: white; padding: 0.35rem; border-radius: 8px; width: fit-content; border: 1px solid var(--border); box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+        .member-tab { padding: 0.45rem 1.35rem; border-radius: 6px; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 0.85rem; font-weight: 500; transition: all 0.2s; background: transparent; color: var(--muted); }
+        .member-tab.active { background: var(--navy); color: var(--gold2); box-shadow: 0 1px 6px rgba(10,22,40,0.18); }
+        .member-tab:not(.active):hover { background: rgba(10,22,40,0.05); color: var(--navy); }
+
+        /* STATS */
         .stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1rem; margin-bottom: 2rem; }
         .stat-card { background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem 1.5rem; }
         .stat-card.navy { background: var(--navy); }
@@ -308,19 +378,30 @@ export default function Dashboard() {
         .stat-card.navy .stat-sub, .stat-card.cagr .stat-sub { color: rgba(255,255,255,0.35); }
         .gain-positive { color: var(--green) !important; }
         .gain-negative { color: var(--red) !important; }
+
+        /* NAV LOADING BADGE */
         .nav-loading { font-size: 0.72rem; color: var(--gold); background: rgba(201,168,76,0.1); border: 1px solid rgba(201,168,76,0.2); padding: 0.4rem 1rem; border-radius: 10px; display: inline-block; margin-bottom: 1rem; }
+
+        /* CHILD BADGE */
+        .child-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.2); color: #7c3aed; padding: 0.3rem 0.85rem; border-radius: 20px; font-size: 0.75rem; font-weight: 500; margin-bottom: 1rem; }
+
+        /* GRID LAYOUTS */
         .dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
         .section-card { background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; }
         .section-card h3 { font-family: 'Cormorant Garamond', serif; font-size: 1.2rem; font-weight: 700; color: var(--navy); margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
         .insight-badge { display: inline-flex; align-items: center; gap: 6px; padding: 0.4rem 0.85rem; border-radius: 20px; font-size: 0.78rem; font-weight: 500; margin-bottom: 1rem; }
         .insight-desc { font-size: 0.78rem; color: var(--muted); line-height: 1.6; margin-bottom: 1.25rem; }
+        .no-data { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 2rem 0; }
+
+        /* BAR CHART */
         .chart-bars { display: flex; align-items: flex-end; gap: 6px; height: 140px; }
         .chart-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
         .chart-bar { width: 100%; background: var(--gold); border-radius: 3px 3px 0 0; transition: all 0.3s; min-height: 4px; }
         .chart-bar:hover { background: var(--gold2); }
         .chart-label { font-size: 10px; color: var(--muted); text-align: center; }
         .chart-val { font-size: 9px; color: var(--muted); }
-        .no-data { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 2rem 0; }
+
+        /* FUND TABLE */
         .fund-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
         .fund-table th { text-align: left; padding: 0.5rem 0.6rem; font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); font-weight: 400; }
         .fund-table td { padding: 0.7rem 0.6rem; border-bottom: 1px solid rgba(0,0,0,0.04); vertical-align: middle; }
@@ -334,6 +415,8 @@ export default function Dashboard() {
         .gain-badge.pos { background: rgba(22,163,74,0.1); color: var(--green); }
         .gain-badge.neg { background: rgba(220,38,38,0.1); color: var(--red); }
         .loading-nav { font-size: 0.72rem; color: var(--gold); }
+
+        /* TRANSACTIONS */
         .txn-list { display: flex; flex-direction: column; gap: 0.6rem; }
         .txn-item { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; background: #faf9f6; border-radius: 6px; border: 1px solid rgba(0,0,0,0.04); }
         .txn-left { flex: 1; }
@@ -343,35 +426,72 @@ export default function Dashboard() {
         .txn-amount { font-size: 0.88rem; font-weight: 500; color: var(--navy); }
         .txn-units { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
         .full-width { margin-bottom: 1.5rem; }
+
         @media (max-width: 768px) {
           .stats-grid { grid-template-columns: repeat(2, 1fr); }
           .dash-grid { grid-template-columns: 1fr; }
           .dash-main { padding: 1rem; }
+          .dash-nav { padding: 0.75rem 1rem; }
+          .member-tabs { width: 100%; }
+          .member-tab { flex: 1; text-align: center; }
         }
       `}</style>
 
+      {/* ── NAVBAR ── */}
       <nav className="dash-nav">
         <div className="dash-nav-logo">Veera Karthik · Investor Portal</div>
         <div className="dash-nav-right">
-  <span className="investor-name">👤 {investor?.name || "Investor"}</span>
-  <button className="logout-btn" onClick={() => router.push("/goals")}>🎯 Goals</button>
-  <button className="logout-btn" onClick={() => router.push("/calculators")}>Calculators</button>
-  <button className="logout-btn" onClick={handleLogout}>Logout</button>
-</div>
+          <span className="investor-name">👤 {investor?.name || "Investor"}</span>
+          <button className="nav-btn" onClick={() => router.push("/goals")}>🎯 Goals</button>
+          <button className="nav-btn" onClick={() => router.push("/calculators")}>Calculators</button>
+          <button className="nav-btn" onClick={handleLogout}>Logout</button>
+        </div>
       </nav>
 
       <div className="dash-main">
+
+        {/* ── WELCOME ── */}
         <div className="welcome">
-          <h2>Welcome, {investor?.name?.split(" ")[0] || "Investor"} 👋</h2>
-          <p>Live portfolio · CAN: {investor?.can} · NAVs updated daily from AMFI</p>
-<p style={{fontSize:"0.75rem", color:"#c9a84c", marginTop:"0.4rem", background:"rgba(201,168,76,0.08)", padding:"0.4rem 0.85rem", borderRadius:"4px", display:"inline-block"}}>
-  📋 Unit purchases and redemptions are updated in the first week of every month
-</p>
+          <h2>
+            Welcome, {investor?.name?.split(" ")[0] || "Investor"} 👋
+          </h2>
+          <p>Live portfolio · CAN: {activeCAN} · NAVs updated daily from AMFI</p>
+          <p style={{ fontSize: "0.75rem", color: "#c9a84c", marginTop: "0.4rem", background: "rgba(201,168,76,0.08)", padding: "0.4rem 0.85rem", borderRadius: "4px", display: "inline-block" }}>
+            📋 Unit purchases and redemptions are updated in the first week of every month
+          </p>
         </div>
 
-        {navLoading && <div className="nav-loading">⏳ Fetching live NAVs from AMFI...</div>}
+        {/* ── MEMBER TAB SWITCHER (only shown when secondary_can exists) ── */}
+        {hasChild && (
+          <div className="member-tabs">
+            <button
+              className={`member-tab ${activeTab === "self" ? "active" : ""}`}
+              onClick={() => setActiveTab("self")}
+            >
+              👤 {investor?.name?.split(" ")[0] || "Self"}
+            </button>
+            <button
+              className={`member-tab ${activeTab === "child" ? "active" : ""}`}
+              onClick={() => setActiveTab("child")}
+            >
+              👶 {childLabel}
+            </button>
+          </div>
+        )}
 
-        {/* STAT CARDS */}
+        {/* ── MINOR CHILD CONTEXT BADGE ── */}
+        {isChild && (
+          <div className="child-badge">
+            👶 Viewing portfolio of {childLabel} &nbsp;·&nbsp; Minor Child &nbsp;·&nbsp; CAN: {investor?.secondary_can}
+          </div>
+        )}
+
+        {/* ── NAV LOADING INDICATOR ── */}
+        {activeNavLoading && (
+          <div className="nav-loading">⏳ Fetching live NAVs from AMFI...</div>
+        )}
+
+        {/* ── STAT CARDS ── */}
         <div className="stats-grid">
           <div className="stat-card navy">
             <div className="stat-label">Total Invested</div>
@@ -381,7 +501,7 @@ export default function Dashboard() {
           <div className="stat-card">
             <div className="stat-label">Current Value</div>
             <div className="stat-value">₹{totalCurrent.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</div>
-            <div className="stat-sub">{navLoading ? "Fetching..." : "As of today"}</div>
+            <div className="stat-sub">{activeNavLoading ? "Fetching..." : "As of today"}</div>
           </div>
           <div className="stat-card">
             <div className="stat-label">Total Gain / Loss</div>
@@ -393,22 +513,21 @@ export default function Dashboard() {
           <div className="stat-card cagr">
             <div className="stat-label">Portfolio CAGR</div>
             <div className={`stat-value ${cagr === null ? "" : cagr >= 0 ? "gain-positive" : "gain-negative"}`}>
-              {cagr === null ? (navLoading ? "..." : "—") : `${cagr >= 0 ? "+" : ""}${cagr.toFixed(2)}%`}
+              {cagr === null ? (activeNavLoading ? "..." : "—") : `${cagr >= 0 ? "+" : ""}${cagr.toFixed(2)}%`}
             </div>
             <div className="stat-sub" style={{ color: "rgba(255,255,255,0.3)", fontSize: "0.65rem" }}>
-              {cagr === null ? "Need more history" : `Since ${firstTxnDate}`}
+              {cagr === null ? "Need more history" : `Since ${activeFirstDate}`}
             </div>
           </div>
           <div className="stat-card">
             <div className="stat-label">Active Funds</div>
-            <div className="stat-value">{funds.length}</div>
-            <div className="stat-sub">{transactions.length} transactions</div>
+            <div className="stat-value">{activeFunds.length}</div>
+            <div className="stat-sub">{activeTransactions.length} transactions</div>
           </div>
         </div>
 
-        {/* PORTFOLIO INSIGHTS ROW */}
+        {/* ── EQUITY vs DEBT + EQUITY EXPOSURE ── */}
         <div className="dash-grid">
-          {/* Equity vs Debt */}
           <div className="section-card">
             <h3>📊 Equity vs Debt</h3>
             <div className="insight-badge" style={{ background: `${insight.color}18`, color: insight.color }}>
@@ -423,14 +542,13 @@ export default function Dashboard() {
             />
           </div>
 
-          {/* Equity Exposure */}
           <div className="section-card">
             <h3>🎯 Equity Exposure</h3>
             {equitySubData.length === 0 ? (
               <p className="no-data">No equity funds</p>
             ) : (
               <>
-                <p className="insight-desc">Breakdown of your equity investments by market cap and category</p>
+                <p className="insight-desc">Breakdown of equity investments by market cap and category</p>
                 <DonutChart
                   data={equitySubData}
                   centerLabel="Equity"
@@ -442,7 +560,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* CHART + FUND TABLE */}
+        {/* ── MONTHLY CHART + FUND TABLE ── */}
         <div className="dash-grid">
           <div className="section-card">
             <h3>📈 Monthly Investment</h3>
@@ -453,7 +571,11 @@ export default function Dashboard() {
                 {months.map(([month, val]: any) => (
                   <div className="chart-bar-wrap" key={month}>
                     <div className="chart-val">₹{(val / 1000).toFixed(0)}k</div>
-                    <div className="chart-bar" style={{ height: `${(val / maxMonthVal) * 110}px` }} title={`₹${val.toLocaleString("en-IN")}`} />
+                    <div
+                      className="chart-bar"
+                      style={{ height: `${(val / maxMonthVal) * 110}px` }}
+                      title={`₹${val.toLocaleString("en-IN")}`}
+                    />
                     <div className="chart-label">{month.slice(5)}</div>
                   </div>
                 ))}
@@ -463,35 +585,55 @@ export default function Dashboard() {
 
           <div className="section-card">
             <h3>💼 Fund Breakdown</h3>
-            {funds.length === 0 ? (
+            {activeFunds.length === 0 ? (
               <p className="no-data">No funds yet</p>
             ) : (
               <table className="fund-table">
                 <thead>
-                  <tr><th>Scheme</th><th>Invested</th><th>Curr. Value</th><th>Return</th></tr>
+                  <tr>
+                    <th>Scheme</th>
+                    <th>Invested</th>
+                    <th>Curr. Value</th>
+                    <th>Return</th>
+                  </tr>
                 </thead>
                 <tbody>
-                  {funds.map((f: any, i) => {
+                  {activeFunds.map((f: any, i: number) => {
                     const { type, subtype } = classifyFund(f.scheme);
                     return (
                       <tr key={i}>
                         <td>
-                          <div className="fund-name-cell">{f.scheme?.length > 28 ? f.scheme.slice(0, 28) + "…" : f.scheme}</div>
+                          <div className="fund-name-cell">
+                            {f.scheme?.length > 28 ? f.scheme.slice(0, 28) + "…" : f.scheme}
+                          </div>
                           <div className="fund-amc">{f.fund}</div>
-                          <div className="fund-type-badge" style={{ background: type === "equity" ? "rgba(201,168,76,0.12)" : "rgba(10,22,40,0.08)", color: type === "equity" ? "#92400e" : "#374151" }}>
+                          <div
+                            className="fund-type-badge"
+                            style={{
+                              background: type === "equity" ? "rgba(201,168,76,0.12)" : "rgba(10,22,40,0.08)",
+                              color: type === "equity" ? "#92400e" : "#374151",
+                            }}
+                          >
                             {subtype}
                           </div>
                         </td>
-                        <td><span className="amount-val">₹{f.amount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</span></td>
+                        <td>
+                          <span className="amount-val">
+                            ₹{f.amount.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                          </span>
+                        </td>
                         <td>
                           {f.currentValue
                             ? <span className="amount-val">₹{f.currentValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</span>
-                            : <span className="loading-nav">{navLoading ? "..." : "N/A"}</span>}
+                            : <span className="loading-nav">{activeNavLoading ? "..." : "N/A"}</span>
+                          }
                         </td>
                         <td>
-                          {f.gain !== null
-                            ? <span className={`gain-badge ${f.gain >= 0 ? "pos" : "neg"}`}>{f.gain >= 0 ? "+" : ""}{f.gainPct?.toFixed(1)}%</span>
-                            : null}
+                          {f.gain !== null && (
+                            <span className={`gain-badge ${f.gain >= 0 ? "pos" : "neg"}`}>
+                              {f.gain >= 0 ? "+" : ""}{f.gainPct?.toFixed(1)}%
+                            </span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -502,28 +644,35 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* RECENT TRANSACTIONS */}
+        {/* ── RECENT TRANSACTIONS ── */}
         <div className="section-card full-width">
           <h3>🧾 Recent Transactions</h3>
-          {transactions.length === 0 ? (
+          {activeTransactions.length === 0 ? (
             <p className="no-data">No transactions yet</p>
           ) : (
             <div className="txn-list">
-              {transactions.slice(0, 10).map((t: any, i) => (
+              {activeTransactions.slice(0, 10).map((t: any, i: number) => (
                 <div className="txn-item" key={i}>
                   <div className="txn-left">
-                    <div className="txn-scheme">{t.scheme_name?.length > 55 ? t.scheme_name.slice(0, 55) + "…" : t.scheme_name}</div>
+                    <div className="txn-scheme">
+                      {t.scheme_name?.length > 55 ? t.scheme_name.slice(0, 55) + "…" : t.scheme_name}
+                    </div>
                     <div className="txn-date">{t.fund_name} · {t.transaction_date}</div>
                   </div>
                   <div className="txn-right">
-                    <div className="txn-amount">₹{parseFloat(t.amount).toLocaleString("en-IN", { maximumFractionDigits: 0 })}</div>
-                    <div className="txn-units">{parseFloat(t.units).toFixed(3)} units @ ₹{parseFloat(t.nav).toFixed(4)}</div>
+                    <div className="txn-amount">
+                      ₹{parseFloat(t.amount).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                    </div>
+                    <div className="txn-units">
+                      {parseFloat(t.units).toFixed(3)} units @ ₹{parseFloat(t.nav).toFixed(4)}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
           )}
         </div>
+
       </div>
     </>
   );
