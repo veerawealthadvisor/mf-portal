@@ -108,14 +108,14 @@ export default function AdminUpload() {
   // row) is recognised as a valid investor — transactions insert normally
   // with the child's own CAN, and the dashboard queries them by that CAN.
   // ─────────────────────────────────────────────────────────────────────────
-  const findInvestorByCAN = async (can: string): Promise<boolean> => {
-    const { data } = await supabase
-      .from("investors")
-      .select("can")
-      .or(`can.eq.${can},secondary_can.eq.${can}`)
-      .maybeSingle();
-    return !!data;
-  };
+ const findInvestorByCAN = async (can: string): Promise<boolean> => {
+  const { data } = await supabase
+    .from("investors")
+    .select("can")
+    .or(`can.eq.${can},secondary_can.eq.${can}`)
+    .limit(1);
+  return Array.isArray(data) && data.length > 0;
+};
 
   const processSheet1 = async (rows: any[]) => {
     let inserted = 0, duplicates = 0, skipped = 0, rejected = 0;
