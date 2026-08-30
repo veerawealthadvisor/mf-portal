@@ -154,8 +154,17 @@ export default function AdminUpload() {
         continue;
       }
 
+      const isSTPOut1 = txnType.includes("stp-out") || txnType.includes("stp out");
+      const isSTPIn1  = txnType.includes("stp-in")  || txnType.includes("stp in");
+      const txnTypeStr1 = isSTPOut1 ? "stp-out" : isSTPIn1 ? "stp-in" : 
+                          (txnType.includes("sip") ? "sip" : 
+                          (txnType.includes("redeem") ? "redemption" : "purchase"));
+
       const { data: existing } = await supabase
-        .from("transactions").select("id").eq("itrn", utrn).maybeSingle();
+        .from("transactions").select("id")
+        .eq("itrn", utrn)
+        .eq("txn_type", txnTypeStr1)
+        .maybeSingle();
       if (existing) { duplicates++; continue; }
 
       const { error: insertError } = await supabase.from("transactions").insert({
@@ -174,58 +183,75 @@ export default function AdminUpload() {
     return { inserted, duplicates, skipped, rejected, investorsNotFound };
   };
 
-  const processSheet2 = async (rows: any[]) => {
-    let inserted = 0, duplicates = 0, skipped = 0, rejected = 0;
-    const investorsNotFound: string[] = [];
+const processSheet2 = async (rows: any[]) => {
+  let inserted = 0, duplicates = 0, skipped = 0, rejected = 0;
+  const investorsNotFound: string[] = [];
 
-    for (const row of rows) {
-      const utrn           = String(row["UTRN"] || "").trim();
-      const can            = String(row["CAN"] || "").trim();
-      const name           = String(row["Primary Holder Name"] || "").trim();
-      const fund           = String(row["Fund Name"] || "").trim();
-      const scheme         = String(row["RTA Scheme Name"] || "").trim();
-      const folio          = String(row["Folio Number"] || "").trim();
-      const status         = String(row["Transaction Status"] || "").trim().toLowerCase();
-      const responseAmount = parseFloat(row["Response Amount"]) || 0;
-      const responseUnits  = parseFloat(row["Response Units"])  || 0;
-      const nav            = parseFloat(row["Price"]) || 0;
-      const valueDate      = parseDate(row["Value Date"]);
-      const instalmentNo   = parseInt(row["Instalment \nNo"] || row["Instalment No"] || "0") || null;
-      const amount         = parseFloat(row["Amount"]) || 0;
+  for (const row of rows) {
+    const utrn           = String(row["UTRN"] || "").trim();
+    const can            = String(row["CAN"] || "").trim();
+    const name           = String(row["Primary Holder Name"] || "").trim();
+    const fund           = String(row["Fund Name"] || "").trim();
+    const scheme         = String(row["RTA Scheme Name"] || "").trim();
+    const folio          = String(row["Folio Number"] || "").trim();
+    const status         = String(row["Transaction Status"] || "").trim().toLowerCase();
+    const responseAmount = parseFloat(row["Response Amount"]) || 0;
+    const responseUnits  = parseFloat(row["Response Units"])  || 0;
+    const nav            = parseFloat(row["Price"]) || 0;
+    const valueDate      = parseDate(row["Value Date"]);
+    const instalmentNo   = parseInt(row["Instalment \nNo"] || row["Instalment No"] || "0") || null;
+    const amount         = parseFloat(row["Amount"]) || 0;
+    const txnType        = String(row["Transaction Type"] || "").trim().toLowerCase();
 
-      if (!can || !utrn || !name) continue;
-      if (!status.includes("rta processed")) { rejected++; continue; }
-      if (responseUnits === 0) { skipped++; continue; }
+    if (!can || !utrn || !name) continue;
+    if (!status.includes("rta processed")) { rejected++; continue; }
+    if (responseUnits === 0) { skipped++; continue; }
 
-      const monthYear = getMonthYear(valueDate);
+    // ── Detect STP ──
+    const isSTPOut = txnType.includes("stp-out") || txnType.includes("stp out");
+    const isSTPIn  = txnType.includes("stp-in")  || txnType.includes("stp in");
+    const isSTP    = isSTPOut || isSTPIn;
 
-      // ── Check primary CAN or secondary_can ──
-      const investorExists = await findInvestorByCAN(can);
-      if (!investorExists) {
-        if (!investorsNotFound.find(i => i.includes(can)))
-          investorsNotFound.push(`${name} (CAN: ${can})`);
-        skipped++;
-        continue;
-      }
+    const txnTypeStr = isSTPOut ? "stp-out" : isSTPIn ? "stp-in" : "sip";
 
-      const { data: existing } = await supabase
-        .from("transactions").select("id").eq("itrn", utrn).maybeSingle();
-      if (existing) { duplicates++; continue; }
+    // STP-Out reduces units and amount (negative)
+    const finalUnits  = isSTPOut ? -Math.abs(responseUnits)  : responseUnits;
+    const finalAmount = isSTPOut ? -Math.abs(responseAmount || amount) : (responseAmount || amount);
 
-      const { error: insertError } = await supabase.from("transactions").insert({
-        itrn: utrn, can, fund_name: fund, scheme_name: scheme,
-        folio_no: folio, amount: responseAmount || amount,
-        units: responseUnits, nav, nav_date: valueDate,
-        transaction_date: valueDate, month_year: monthYear,
-        txn_type: "sip", instalment_no: instalmentNo,
-      });
+    const monthYear = getMonthYear(valueDate);
 
-      if (insertError) { console.error("S2 insert error:", insertError.message); skipped++; }
-      else inserted++;
+    // ── Check investor ──
+    const investorExists = await findInvestorByCAN(can);
+    if (!investorExists) {
+      if (!investorsNotFound.find(i => i.includes(can)))
+        investorsNotFound.push(`${name} (CAN: ${can})`);
+      skipped++;
+      continue;
     }
 
-    return { inserted, duplicates, skipped, rejected, investorsNotFound };
-  };
+    // ── Duplicate check: use itrn + txn_type (STP pairs share same UTRN) ──
+    const { data: existing } = await supabase
+      .from("transactions")
+      .select("id")
+      .eq("itrn", utrn)
+      .eq("txn_type", txnTypeStr)
+      .maybeSingle();
+    if (existing) { duplicates++; continue; }
+
+    const { error: insertError } = await supabase.from("transactions").insert({
+      itrn: utrn, can, fund_name: fund, scheme_name: scheme,
+      folio_no: folio, amount: finalAmount,
+      units: finalUnits, nav, nav_date: valueDate,
+      transaction_date: valueDate, month_year: monthYear,
+      txn_type: txnTypeStr, instalment_no: isSTP ? null : instalmentNo,
+    });
+
+    if (insertError) { console.error("S2 insert error:", insertError.message); skipped++; }
+    else inserted++;
+  }
+
+  return { inserted, duplicates, skipped, rejected, investorsNotFound };
+};
 
   const handleUpload = async () => {
     if (!file) return;
