@@ -149,7 +149,7 @@ function buildFundMap(txnList: any[]): any[] {
     fundMap[key].amount += parseFloat(t.amount) || 0;
     fundMap[key].units  += parseFloat(t.units)  || 0;
   });
-  return Object.values(fundMap);
+  return Object.values(fundMap).filter((f: any) => f.units > 0.001);
 }
 
 // ── ENRICH FUNDS WITH LIVE NAV ───────────────────────────────────────────────
