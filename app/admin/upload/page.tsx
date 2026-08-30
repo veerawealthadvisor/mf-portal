@@ -3,7 +3,7 @@ import { useState } from "react";
 import { supabase } from "../../../lib/supabase";
 import * as XLSX from "xlsx";
 
-// ── Keep this in sync with lib/navHelper.ts SCHEME_CODE_OVERRIDES ──
+/// ── Keep this in sync with lib/navHelper.ts SCHEME_CODE_OVERRIDES ──
 const HARDCODED_SCHEMES = new Set([
   "axis nifty 100 index fund regular growth",
   "axis short duration fund - growth",
@@ -38,6 +38,12 @@ const HARDCODED_SCHEMES = new Set([
   "tata ethical fund regular plan - growth",
   "tata short term bond fund regular plan - growth",
   "tata ultra short term fund - regular plan - growth",
+  // ── New funds added August 2026 (batch 2) ──
+  "axis short term fund - regular growth - growth",
+  "axis ultra short to short term fund - regular growth - growth",
+  "bandhan ultra short to short term fund-regular plan-growth",
+  "invesco india ultra short term fund - regular plan - growth",
+  "kotak mid cap fund -growth",
 ]);
 
 export default function AdminUpload() {

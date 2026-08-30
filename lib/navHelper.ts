@@ -37,19 +37,24 @@ const SCHEME_CODE_OVERRIDES: Record<string, number> = {
   "motilal oswal midcap fund - regular plan growth":                                   127039,
   "nippon india growth mid cap fund - growth plan growth option":                      100377,
   "parag parikh flexi cap fund-regular-growth":                                        122640,
-  "invesco india ultra short duration fund - regular plan - growth": 114359,
-"kotak midcap fund -growth":                                        104908,
-"motilal oswal ultra short term fund regular growth":               124233,
-"nippon india banking & financial services fund growth plan growth option": 101862,
-"nippon india ultra short duration fund - growth option":           143493,
-"parag parikh arbitrage fund - regular plan growth":                152110,
-"invesco india low duration fund growth":                          104726,
-"invesco india midcap fund - regular plan - growth":              105503,
-"invesco india small cap fund regular growth":             145139,
-"tata digital india fund regular plan growth":             135797,
-"tata ethical fund regular plan - growth":                 100415,
-"tata short term bond fund regular plan - growth":         101548,
-"tata ultra short term fund - regular plan - growth":      146070,
+  "invesco india ultra short duration fund - regular plan - growth":                   114359,
+  "kotak midcap fund -growth":                                                         104908,
+  "motilal oswal ultra short term fund regular growth":                                124233,
+  "nippon india banking & financial services fund growth plan growth option":          101862,
+  "nippon india ultra short duration fund - growth option":                            143493,
+  "parag parikh arbitrage fund - regular plan growth":                                 152110,
+  "invesco india low duration fund growth":                                            104726,
+  "invesco india midcap fund - regular plan - growth":                                 105503,
+  "invesco india small cap fund regular growth":                                       145139,
+  "tata digital india fund regular plan growth":                                       135797,
+  "tata ethical fund regular plan - growth":                                           100415,
+  "tata short term bond fund regular plan - growth":                                   101548,
+  "tata ultra short term fund - regular plan - growth":                                146070,
+  "axis short term fund - regular growth - growth":                                    112354, // ⚠️ new
+  "axis ultra short to short term fund - regular growth - growth":                     112214, // ⚠️ new
+  "bandhan ultra short to short term fund-regular plan-growth":                        108632, // ⚠️ new
+  "invesco india ultra short term fund - regular plan - growth":                       114359, // ⚠️ new
+  "kotak mid cap fund -growth":                                                        104908, // ⚠️ new
 };
 
 // Words that don't help identify a fund — strip before comparing
