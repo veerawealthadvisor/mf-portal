@@ -179,9 +179,9 @@ export default function AdminDashboard() {
   );
 
   // Computed stats for detail view — use activeSelectedFunds throughout
-  const detailInvested = Object.values(activeSelectedFunds).reduce(
-    (s: number, f: any) => s + f.invested, 0
-  ) as number;
+ const detailInvested = selectedTxns.reduce(
+  (s: number, t: any) => s + (parseFloat(t.amount) || 0), 0
+);
 
   const detailCurrentValue = Object.values(activeSelectedFunds).reduce((sum: number, f: any) => {
     const nav = fundValues[f.scheme];
