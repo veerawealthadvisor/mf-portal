@@ -17,8 +17,7 @@ export default function AdminDashboard() {
   const [selectedInvestor, setSelectedInvestor] = useState<any>(null);
   const [view, setView]                 = useState<"global" | "investor">("global");
 
-  // Tab inside the investor detail view: primary vs minor child
-  const [detailTab, setDetailTab]       = useState<"self" | "child">("self");
+  const [detailTab, setDetailTab] = useState<"self" | "child">("self");
 
   useEffect(() => {
     const fetchData = async () => {
@@ -48,7 +47,6 @@ export default function AdminDashboard() {
       setTransactions(allTxns || []);
       setLoading(false);
 
-      // Enrich NAVs in background
       setNavLoading(true);
       const schemes = [...new Set((allTxns || []).map((t: any) => t.scheme_name))];
       const navMap: any = {};
@@ -73,7 +71,7 @@ export default function AdminDashboard() {
     router.push("/");
   };
 
-  // ── Global stats (all transactions — already includes child CANs) ─────────
+  // ── Global stats ──────────────────────────────────────────────────────────
   const totalInvested = transactions.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
 
   const fundUnitMap: any = {};
@@ -84,7 +82,12 @@ export default function AdminDashboard() {
     fundUnitMap[key].invested += parseFloat(t.amount) || 0;
   });
 
-  const totalCurrentValue = Object.entries(fundUnitMap).reduce((sum, [scheme, data]: any) => {
+  // FIX 3: filter 0-unit funds from global top funds
+  const activeFundUnitMap = Object.fromEntries(
+    Object.entries(fundUnitMap).filter(([, d]: any) => d.units > 0.001)
+  );
+
+  const totalCurrentValue = Object.entries(activeFundUnitMap).reduce((sum, [scheme, data]: any) => {
     const nav = fundValues[scheme];
     return sum + (nav ? data.units * nav : data.invested);
   }, 0);
@@ -92,7 +95,8 @@ export default function AdminDashboard() {
   const totalGain    = totalCurrentValue - totalInvested;
   const totalGainPct = totalInvested > 0 ? (totalGain / totalInvested) * 100 : 0;
 
-  // ── Investor summary — includes secondary_can (minor child) in family total
+  // ── Investor summary ──────────────────────────────────────────────────────
+  // FIX 1: per-scheme invested fallback, filter 0-unit funds, correct fund count
   const investorSummary = investors.map((inv: any) => {
     const primaryTxns = transactions.filter((t: any) => t.can === inv.can);
     const childTxns   = inv.secondary_can
@@ -100,34 +104,39 @@ export default function AdminDashboard() {
       : [];
     const allTxns = [...primaryTxns, ...childTxns];
 
-    // Build fund map across both
     const fundMap: any = {};
     allTxns.forEach((t: any) => {
-      if (!fundMap[t.scheme_name]) fundMap[t.scheme_name] = { units: 0 };
-      fundMap[t.scheme_name].units += parseFloat(t.units) || 0;
+      if (!fundMap[t.scheme_name]) fundMap[t.scheme_name] = { units: 0, invested: 0 };
+      fundMap[t.scheme_name].units    += parseFloat(t.units)  || 0;
+      fundMap[t.scheme_name].invested += parseFloat(t.amount) || 0;
     });
 
+    // Only count funds still holding units
+    const activeFunds = Object.fromEntries(
+      Object.entries(fundMap).filter(([, d]: any) => d.units > 0.001)
+    );
+
     const invested     = allTxns.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-    const currentValue = Object.entries(fundMap).reduce((sum, [scheme, data]: any) => {
+    const currentValue = Object.entries(activeFunds).reduce((sum, [scheme, data]: any) => {
       const nav = fundValues[scheme];
-      return sum + (nav ? data.units * nav : 0);
-    }, 0) || invested; // fallback to invested if NAVs not loaded
+      return sum + (nav ? data.units * nav : data.invested); // per-scheme fallback
+    }, 0);
 
     const gain    = currentValue - invested;
     const gainPct = invested > 0 ? (gain / invested) * 100 : 0;
-    const funds   = [...new Set(allTxns.map((t: any) => t.scheme_name))].length;
+    const funds   = Object.keys(activeFunds).length;
 
     return {
       ...inv,
       invested, currentValue, gain, gainPct, funds,
-      txnCount:       allTxns.length,
+      txnCount:        allTxns.length,
       primaryTxnCount: primaryTxns.length,
       childTxnCount:   childTxns.length,
     };
   });
 
   // ── Top funds global ──────────────────────────────────────────────────────
-  const topFunds = Object.entries(fundUnitMap)
+  const topFunds = Object.entries(activeFundUnitMap)
     .map(([scheme, data]: any) => ({
       scheme, fund: data.fund, invested: data.invested,
       currentValue: fundValues[scheme] ? data.units * fundValues[scheme] : data.invested,
@@ -145,7 +154,7 @@ export default function AdminDashboard() {
   const months   = Object.entries(monthMap).sort();
   const maxMonth = Math.max(...months.map(([, v]: any) => v), 1);
 
-  // ── Investor detail — switches by detailTab ────────────────────────────────
+  // ── Investor detail ───────────────────────────────────────────────────────
   const activeCAN = selectedInvestor
     ? (detailTab === "child" && selectedInvestor.secondary_can
         ? selectedInvestor.secondary_can
@@ -156,28 +165,36 @@ export default function AdminDashboard() {
     ? transactions.filter((t: any) => t.can === activeCAN)
     : [];
 
-  const selectedFunds: any = {};
+  // FIX 2: build selectedFunds then filter out 0-unit funds
+  const selectedFundsRaw: any = {};
   selectedTxns.forEach((t: any) => {
-    if (!selectedFunds[t.scheme_name])
-      selectedFunds[t.scheme_name] = { scheme: t.scheme_name, fund: t.fund_name, units: 0, invested: 0 };
-    selectedFunds[t.scheme_name].units    += parseFloat(t.units)  || 0;
-    selectedFunds[t.scheme_name].invested += parseFloat(t.amount) || 0;
+    if (!selectedFundsRaw[t.scheme_name])
+      selectedFundsRaw[t.scheme_name] = { scheme: t.scheme_name, fund: t.fund_name, units: 0, invested: 0 };
+    selectedFundsRaw[t.scheme_name].units    += parseFloat(t.units)  || 0;
+    selectedFundsRaw[t.scheme_name].invested += parseFloat(t.amount) || 0;
   });
 
-  // Computed stats for detail view
-  const detailInvested     = selectedTxns.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-  const detailCurrentValue = Object.values(selectedFunds).reduce((sum: number, f: any) => {
+  const activeSelectedFunds = Object.fromEntries(
+    Object.entries(selectedFundsRaw).filter(([, f]: any) => f.units > 0.001)
+  );
+
+  // Computed stats for detail view — use activeSelectedFunds throughout
+  const detailInvested = Object.values(activeSelectedFunds).reduce(
+    (s: number, f: any) => s + f.invested, 0
+  ) as number;
+
+  const detailCurrentValue = Object.values(activeSelectedFunds).reduce((sum: number, f: any) => {
     const nav = fundValues[f.scheme];
     return sum + (nav ? f.units * nav : f.invested);
   }, 0) as number;
+
   const detailGain    = detailCurrentValue - detailInvested;
   const detailGainPct = detailInvested > 0 ? (detailGain / detailInvested) * 100 : 0;
-  const detailFunds   = Object.keys(selectedFunds).length;
+  const detailFunds   = Object.keys(activeSelectedFunds).length;
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
   const openInvestorDetail = (inv: any) => {
     setSelectedInvestor(inv);
-    setDetailTab("self"); // always reset to primary tab on open
+    setDetailTab("self");
     setView("investor");
   };
 
@@ -195,7 +212,6 @@ export default function AdminDashboard() {
         :root { --navy: #0a1628; --gold: #c9a84c; --gold2: #e8c97a; --white: #fff; --muted: #6b7280; --border: rgba(0,0,0,0.08); --green: #16a34a; --red: #dc2626; --purple: #7c3aed; }
         body { font-family: 'DM Sans', sans-serif; background: #f0ebe0; }
 
-        /* NAV */
         .nav { background: var(--navy); padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(201,168,76,0.2); position: sticky; top: 0; z-index: 50; }
         .nav-logo { font-family: 'Cormorant Garamond', serif; font-size: 1.2rem; font-weight: 700; color: var(--gold2); }
         .nav-right { display: flex; align-items: center; gap: 1rem; }
@@ -203,7 +219,6 @@ export default function AdminDashboard() {
         .nav-btn:hover { background: var(--gold); color: var(--navy); }
         .admin-badge { font-size: 0.7rem; background: rgba(201,168,76,0.15); color: var(--gold); padding: 3px 10px; border-radius: 10px; border: 1px solid rgba(201,168,76,0.3); }
 
-        /* LAYOUT */
         .main { max-width: 1200px; margin: 0 auto; padding: 2rem; }
         .page-header { margin-bottom: 2rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
         .page-header h1 { font-family: 'Cormorant Garamond', serif; font-size: 1.8rem; color: var(--navy); }
@@ -213,7 +228,6 @@ export default function AdminDashboard() {
         .view-tab.active { background: var(--navy); color: var(--gold2); font-weight: 500; }
         .nav-loading { font-size: 0.72rem; color: var(--gold); background: rgba(201,168,76,0.1); border: 1px solid rgba(201,168,76,0.2); padding: 0.4rem 1rem; border-radius: 10px; display: inline-block; margin-bottom: 1rem; }
 
-        /* STAT CARDS */
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
         .stat-card { background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem 1.5rem; }
         .stat-card.navy { background: var(--navy); }
@@ -226,12 +240,10 @@ export default function AdminDashboard() {
         .green { color: var(--green) !important; }
         .red   { color: var(--red)   !important; }
 
-        /* GRIDS / CARDS */
         .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
         .section-card { background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; }
         .section-card h3 { font-family: 'Cormorant Garamond', serif; font-size: 1.2rem; font-weight: 700; color: var(--navy); margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
 
-        /* INVESTOR CARDS (grid) */
         .investor-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
         .investor-card { background: var(--white); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; cursor: pointer; transition: all 0.2s; }
         .investor-card:hover { border-color: var(--gold); transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
@@ -242,22 +254,18 @@ export default function AdminDashboard() {
         .inv-stat-label { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
         .inv-stat-val { font-size: 0.88rem; font-weight: 500; color: var(--navy); margin-top: 2px; }
 
-        /* MINOR CHILD BADGES */
         .minor-badge { font-size: 0.65rem; background: rgba(124,58,237,0.1); color: var(--purple); border: 1px solid rgba(124,58,237,0.2); padding: 2px 8px; border-radius: 10px; font-family: 'DM Sans', sans-serif; font-weight: 500; white-space: nowrap; }
         .minor-context-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.2); color: var(--purple); padding: 0.3rem 0.85rem; border-radius: 20px; font-size: 0.75rem; font-weight: 500; margin-bottom: 1rem; }
 
-        /* DETAIL TAB SWITCHER */
         .detail-tabs { display: flex; gap: 0.4rem; background: white; padding: 0.35rem; border-radius: 8px; width: fit-content; border: 1px solid var(--border); margin-bottom: 1.5rem; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
         .detail-tab { padding: 0.45rem 1.25rem; border-radius: 6px; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 0.85rem; font-weight: 500; transition: all 0.2s; background: transparent; color: var(--muted); }
         .detail-tab.active { background: var(--navy); color: var(--gold2); box-shadow: 0 1px 6px rgba(10,22,40,0.18); }
         .detail-tab:not(.active):hover { background: rgba(10,22,40,0.05); color: var(--navy); }
 
-        /* GAIN BADGES */
         .gain-badge { display: inline-block; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
         .gain-badge.pos { background: rgba(22,163,74,0.1); color: var(--green); }
         .gain-badge.neg { background: rgba(220,38,38,0.1); color: var(--red); }
 
-        /* TABLES */
         .fund-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
         .fund-table th { text-align: left; padding: 0.5rem 0.75rem; font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); font-weight: 400; }
         .fund-table td { padding: 0.7rem 0.75rem; border-bottom: 1px solid rgba(0,0,0,0.04); vertical-align: middle; }
@@ -267,7 +275,6 @@ export default function AdminDashboard() {
         .fund-amc { font-size: 0.68rem; color: var(--muted); }
         .no-data { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 2rem 0; }
 
-        /* BAR CHART */
         .bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 120px; margin-top: 0.5rem; }
         .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }
         .bar { width: 100%; background: var(--gold); border-radius: 3px 3px 0 0; min-height: 3px; transition: all 0.3s; }
@@ -275,13 +282,11 @@ export default function AdminDashboard() {
         .bar-label { font-size: 9px; color: var(--muted); text-align: center; }
         .bar-val { font-size: 8px; color: var(--muted); }
 
-        /* INVESTOR DETAIL HEADER */
         .inv-detail-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 1.5rem; gap: 1rem; flex-wrap: wrap; }
         .inv-detail-header h2 { font-family: 'Cormorant Garamond', serif; font-size: 1.5rem; color: var(--navy); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .back-btn { background: none; border: 1px solid var(--border); padding: 0.4rem 1rem; border-radius: 4px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; color: var(--muted); cursor: pointer; transition: all 0.2s; white-space: nowrap; }
         .back-btn:hover { border-color: var(--navy); color: var(--navy); }
 
-        /* TRANSACTIONS LIST */
         .txn-list { display: flex; flex-direction: column; gap: 0.6rem; max-height: 400px; overflow-y: auto; }
         .txn-item { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; background: #faf9f6; border-radius: 6px; border: 1px solid rgba(0,0,0,0.04); }
         .txn-scheme { font-size: 0.8rem; font-weight: 500; color: var(--navy); }
@@ -446,7 +451,7 @@ export default function AdminDashboard() {
           </>
         )}
 
-        {/* ── INVESTOR GRID (select view) ── */}
+        {/* ── INVESTOR GRID ── */}
         {view === "investor" && !selectedInvestor && (
           <>
             <p style={{ color: "var(--muted)", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
@@ -495,7 +500,6 @@ export default function AdminDashboard() {
         {/* ── INVESTOR DETAIL VIEW ── */}
         {view === "investor" && selectedInvestor && (
           <>
-            {/* Header */}
             <div className="inv-detail-header">
               <div>
                 <h2>
@@ -514,7 +518,6 @@ export default function AdminDashboard() {
               <button className="back-btn" onClick={() => setSelectedInvestor(null)}>← All Investors</button>
             </div>
 
-            {/* Tab switcher — only shown when secondary_can exists */}
             {selectedInvestor.secondary_can && (
               <div className="detail-tabs">
                 <button
@@ -532,14 +535,12 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {/* Context badge when viewing child */}
             {detailTab === "child" && selectedInvestor.secondary_can && (
               <div className="minor-context-badge">
                 👶 Viewing portfolio of {selectedInvestor.secondary_name || "Minor"} · CAN: {selectedInvestor.secondary_can}
               </div>
             )}
 
-            {/* Stat cards for active tab */}
             <div className="stats-grid" style={{ marginBottom: "1.5rem" }}>
               <div className="stat-card navy">
                 <div className="stat-label">Total Invested</div>
@@ -565,7 +566,6 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* No data state */}
             {selectedTxns.length === 0 ? (
               <div className="section-card">
                 <p className="no-data">
@@ -576,7 +576,6 @@ export default function AdminDashboard() {
               </div>
             ) : (
               <div className="grid2">
-                {/* Fund breakdown */}
                 <div className="section-card">
                   <h3>💼 Fund Breakdown</h3>
                   <table className="fund-table">
@@ -584,7 +583,7 @@ export default function AdminDashboard() {
                       <tr><th>Scheme</th><th>Units</th><th>Invested</th><th>Curr. Value</th></tr>
                     </thead>
                     <tbody>
-                      {Object.values(selectedFunds).map((f: any, i) => {
+                      {Object.values(activeSelectedFunds).map((f: any, i) => {
                         const nav = fundValues[f.scheme];
                         const cv  = nav ? f.units * nav : f.invested;
                         const g   = cv - f.invested;
@@ -612,7 +611,6 @@ export default function AdminDashboard() {
                   </table>
                 </div>
 
-                {/* Transactions */}
                 <div className="section-card">
                   <h3>🧾 Transactions</h3>
                   <div className="txn-list">

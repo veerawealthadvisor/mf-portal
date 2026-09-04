@@ -202,7 +202,6 @@ const processSheet2 = async (rows: any[]) => {
     const instalmentNo   = parseInt(row["Instalment \nNo"] || row["Instalment No"] || "0") || null;
     const amount         = parseFloat(row["Amount"]) || 0;
     const txnType        = String(row["Transaction Type"] || "").trim().toLowerCase();
-    console.log("S2 ROW:", txnType, row["UTRN"]);  // ← add this line temporarily
 
     if (!can || !utrn || !name) continue;
     if (!status.includes("rta processed")) { rejected++; continue; }
