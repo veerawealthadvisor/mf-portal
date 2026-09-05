@@ -55,6 +55,9 @@ const SCHEME_CODE_OVERRIDES: Record<string, number> = {
   "bandhan ultra short to short term fund-regular plan-growth":                        108632, // ⚠️ new
   "invesco india ultra short term fund - regular plan - growth":                       114359, // ⚠️ new
   "kotak mid cap fund -growth":                                                        104908, // ⚠️ new
+  "invesco india ultra short to short term fund - growth option":              104726, // ⚠️ alias
+"nippon india ultra short term fund - growth option - growth plan-growth":   143493, // ⚠️ alias
+"tata short term fund regular plan - growth":                                101548, // ⚠️ alias
 };
 
 // Words that don't help identify a fund — strip before comparing
@@ -84,7 +87,7 @@ function wordOverlapScore(original: string, candidate: string): number {
 export async function getLiveNAV(schemeName: string): Promise<NAVResult | null> {
   try {
     // ── Step 1: Check hardcoded overrides first (fast, accurate) ──
-    const overrideCode = SCHEME_CODE_OVERRIDES[schemeName.toLowerCase().trim()];
+    const overrideCode = SCHEME_CODE_OVERRIDES[schemeName.toLowerCase().trim().replace(/\s+/g, " ").replace(/–/g, "-")];
     if (overrideCode) {
       const navRes = await fetch(`https://api.mfapi.in/mf/${overrideCode}/latest`);
       const navData = await navRes.json();

@@ -44,6 +44,10 @@ const HARDCODED_SCHEMES = new Set([
   "bandhan ultra short to short term fund-regular plan-growth",
   "invesco india ultra short term fund - regular plan - growth",
   "kotak mid cap fund -growth",
+  // ── New aliases added August 2026 (batch 3) ──
+"invesco india ultra short to short term fund - growth option",
+"nippon india ultra short term fund - growth option - growth plan-growth",
+"tata short term fund regular plan - growth",
 ]);
 
 export default function AdminUpload() {
