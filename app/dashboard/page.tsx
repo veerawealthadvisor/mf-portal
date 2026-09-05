@@ -42,6 +42,15 @@ const FUND_CLASSIFICATION: Record<string, { type: "equity" | "debt"; subtype: st
   "tata ethical fund regular plan - growth":                                         { type: "equity", subtype: "Equity" },
   "tata short term bond fund regular plan - growth":                                 { type: "debt",   subtype: "Debt" },
   "tata ultra short term fund - regular plan - growth":                              { type: "debt",   subtype: "Debt" },
+    // ── Aliases added August 2026 ──
+  "axis short term fund - regular growth - growth":                                  { type: "debt",   subtype: "Debt" },
+  "axis ultra short to short term fund - regular growth - growth":                   { type: "debt",   subtype: "Debt" },
+  "bandhan ultra short to short term fund-regular plan-growth":                      { type: "debt",   subtype: "Debt" },
+  "invesco india ultra short term fund - regular plan - growth":                     { type: "debt",   subtype: "Debt" },
+  "kotak mid cap fund -growth":                                                      { type: "equity", subtype: "Mid Cap" },
+  "invesco india ultra short to short term fund - growth option":                    { type: "debt",   subtype: "Debt" },
+  "nippon india ultra short term fund - growth option - growth plan-growth":         { type: "debt",   subtype: "Debt" },
+  "tata short term fund regular plan - growth":                                      { type: "debt",   subtype: "Debt" },
 };
 
 function normalizeSchemeName(name: string): string {
@@ -269,7 +278,9 @@ export default function Dashboard() {
   const activeCAN        = isChild ? investor?.secondary_can : investor?.can;
 
   // ── Computed stats ─────────────────────────────────────────────────────────
-  const totalInvested = activeFunds.reduce((s, f) => s + f.amount, 0);
+  const totalInvested = activeTransactions.reduce(
+  (s, t) => s + (parseFloat(t.amount) || 0), 0
+);
   const totalCurrent  = activeFunds.reduce((s, f) => s + (f.currentValue || f.amount), 0);
   const totalGain     = totalCurrent - totalInvested;
   const totalGainPct  = totalInvested > 0 ? (totalGain / totalInvested) * 100 : 0;
