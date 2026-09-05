@@ -608,7 +608,21 @@ export default function AdminDashboard() {
                         );
                       })}
                     </tbody>
-                  </table>
+<tfoot>
+  <tr style={{ borderTop: "2px solid var(--border)" }}>
+    <td style={{ fontSize: "0.75rem", fontWeight: 600, color: "var(--navy)", padding: "0.7rem 0.75rem" }}>
+      Total
+    </td>
+    <td></td>
+    <td style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--navy)", padding: "0.7rem 0.75rem" }}>
+      ₹{detailInvested.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+    </td>
+    <td style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--navy)", padding: "0.7rem 0.75rem" }}>
+      ₹{detailCurrentValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+    </td>
+  </tr>
+</tfoot>
+</table>
                 </div>
 
                 <div className="section-card">
